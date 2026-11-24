@@ -260,6 +260,19 @@ impl Buffer {
         s
     }
 
+    /// The chars of `line` without its line end, in `out`, which is cleared first. A loop over
+    /// many lines reuses one `out`, with no new string per line.
+    pub fn line_chars(&self, line: usize, out: &mut Vec<char>) {
+        out.clear();
+        if line >= self.text.len_lines() {
+            return;
+        }
+        out.extend(self.text.line(line).chars());
+        if out.last() == Some(&'\n') {
+            out.pop();
+        }
+    }
+
     /// Chars in `line`, not counting its line end.
     pub fn line_len(&self, line: usize) -> usize {
         if line >= self.text.len_lines() {

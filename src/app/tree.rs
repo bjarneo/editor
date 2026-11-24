@@ -1,5 +1,6 @@
 //! The file tree: folders first, git status on each row, keys when it has focus.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use editor::editor::{KeyCode, KeyInput};
@@ -24,25 +25,26 @@ pub struct TreeRow {
 }
 
 impl TreeIndex {
+    /// The tree of `files`. A large project takes tens of milliseconds, so the index worker
+    /// builds it and the UI thread only swaps it in.
     pub fn build(files: &[String]) -> TreeIndex {
         let mut children: HashMap<String, Vec<(String, bool)>> = HashMap::new();
-        let mut dirs: HashSet<String> = HashSet::new();
+        let mut dirs: HashSet<&str> = HashSet::new();
         for f in files {
-            let mut parent = String::new();
-            let parts: Vec<&str> = f.split('/').collect();
-            for (i, part) in parts.iter().enumerate() {
-                let path = if parent.is_empty() { part.to_string() } else { format!("{parent}/{part}") };
-                let last = i + 1 == parts.len();
-                if last {
-                    children.entry(parent.clone()).or_default().push((part.to_string(), false));
-                } else if dirs.insert(path.clone()) {
-                    children.entry(parent.clone()).or_default().push((part.to_string(), true));
+            let mut parent = "";
+            let mut start = 0;
+            for (i, _) in f.match_indices('/') {
+                let dir = &f[..i];
+                if dirs.insert(dir) {
+                    push_child(&mut children, parent, &f[start..i], true);
                 }
-                parent = path;
+                parent = dir;
+                start = i + 1;
             }
+            push_child(&mut children, parent, &f[start..], false);
         }
         for list in children.values_mut() {
-            list.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
+            list.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| caseless(&a.0, &b.0)).then_with(|| a.0.cmp(&b.0)));
         }
         TreeIndex { children }
     }
@@ -67,14 +69,31 @@ impl TreeIndex {
     }
 }
 
+/// Adds `name` to the children of `parent`, with no new key when the folder has one.
+fn push_child(children: &mut HashMap<String, Vec<(String, bool)>>, parent: &str, name: &str, dir: bool) {
+    match children.get_mut(parent) {
+        Some(list) => list.push((name.to_string(), dir)),
+        None => {
+            children.insert(parent.to_string(), vec![(name.to_string(), dir)]);
+        }
+    }
+}
+
+/// Compares names as lowercase, without making lowercase copies.
+fn caseless(a: &str, b: &str) -> Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        return a.bytes().map(|c| c.to_ascii_lowercase()).cmp(b.bytes().map(|c| c.to_ascii_lowercase()));
+    }
+    a.chars().flat_map(char::to_lowercase).cmp(b.chars().flat_map(char::to_lowercase))
+}
+
 impl App {
     /// The git letter for a tree row: a file's own, or `M` on a folder with changes inside.
     pub fn git_letter(&self, row: &TreeRow) -> Option<char> {
         if !row.dir {
             return self.git.status.get(&row.path).copied();
         }
-        let prefix = format!("{}/", row.path);
-        self.git.status.keys().any(|k| k.starts_with(&prefix)).then_some('•')
+        self.git.dirs.contains(&row.path).then_some('•')
     }
 
     /// Opens or closes a folder, or opens a file.

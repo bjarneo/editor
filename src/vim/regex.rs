@@ -57,6 +57,9 @@ pub struct Regex {
     alts: Vec<Vec<Node>>,
     icase: bool,
     groups: usize,
+    /// The chars a match can start with, when every alternative starts with a plain char.
+    /// The search then tries the full pattern only where the line has one of them.
+    first: Option<Vec<char>>,
 }
 
 /// Where a match is: char offsets in the line, and each group's span.
@@ -331,6 +334,18 @@ fn has_upper(p: &str) -> bool {
     false
 }
 
+/// The first char of every alternative, when each starts with a plain char.
+fn first_chars(alts: &[Vec<Node>]) -> Option<Vec<char>> {
+    let mut out: Vec<char> = Vec::new();
+    for alt in alts {
+        let Some(Node::Char(c)) = alt.first() else { return None };
+        if !out.contains(c) {
+            out.push(*c);
+        }
+    }
+    Some(out)
+}
+
 impl Regex {
     /// Compiles `pattern` with smartcase, `\c` and `\C`.
     pub fn new(pattern: &str) -> Result<Regex, String> {
@@ -372,7 +387,8 @@ impl Regex {
         if p.i < p.s.len() {
             return Err("E16: Unmatched \\)".into());
         }
-        Ok(Regex { alts, icase, groups: p.groups })
+        let first = first_chars(&alts);
+        Ok(Regex { alts, icase, groups: p.groups, first })
     }
 
     /// The first match in `text` that starts at or after `from`.
@@ -382,6 +398,11 @@ impl Regex {
         for start in from..=text.len() {
             if anchored && start > 0 {
                 break;
+            }
+            if let Some(first) = &self.first
+                && !text.get(start).is_some_and(|&c| first.iter().any(|&f| m.eq(c, f)))
+            {
+                continue;
             }
             m.caps.iter_mut().for_each(|c| *c = None);
             let mut end = None;
@@ -423,7 +444,15 @@ struct Matcher<'a> {
 
 impl<'a> Matcher<'a> {
     fn eq(&self, a: char, b: char) -> bool {
-        a == b || (self.icase && a.to_lowercase().eq(b.to_lowercase()))
+        if a == b {
+            return true;
+        }
+        if !self.icase {
+            return false;
+        }
+        // ASCII folds without the Unicode tables. The Kelvin sign folds to `k`, so a pair with
+        // a char outside ASCII takes the full compare.
+        if a.is_ascii() && b.is_ascii() { a.eq_ignore_ascii_case(&b) } else { a.to_lowercase().eq(b.to_lowercase()) }
     }
 
     fn alts(&mut self, alts: &[Vec<Node>], i: usize, k: &mut Cont<'_, 'a>) -> bool {
@@ -533,6 +562,19 @@ mod tests {
     fn find(p: &str, t: &str) -> Option<(usize, usize)> {
         let chars: Vec<char> = t.chars().collect();
         Regex::new(p).unwrap().find_at(&chars, 0).map(|m| (m.start, m.end))
+    }
+
+    #[test]
+    fn the_first_char_skip_keeps_every_match() {
+        // Each alternative starts with a plain char, so only those starts are tried.
+        assert_eq!(find("cat\\|dog", "a hot dog"), Some((6, 9)));
+        assert_eq!(find("DOG", "a hot dog DOG"), Some((10, 13)));
+        // The Kelvin sign folds to `k`, outside the ASCII compare.
+        assert_eq!(find("\\ck", "\u{212A}ilo"), Some((0, 1)));
+        // A pattern that can start with any char tries every start.
+        assert_eq!(find("x*y", "aaay"), Some((3, 4)));
+        assert_eq!(Regex::new("a\\|b*").unwrap().first, None);
+        assert_eq!(Regex::new("ab\\|ac").unwrap().first, Some(vec!['a']));
     }
 
     #[test]

@@ -15,6 +15,8 @@ pub mod setup;
 pub mod tree;
 
 #[cfg(test)]
+mod bench_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::{HashMap, HashSet};
@@ -151,6 +153,8 @@ pub struct App {
     pub window: session::WindowFrame,
     /// `open --wait` requests held until their buffer closes.
     pub waiters: Vec<ipc::Waiter>,
+    /// Polls so far, counted for startup timing only.
+    pub polls: u32,
     /// Lines an agent pointed at, with its note.
     pub note: Option<ipc::Note>,
     /// Changed blocks of files that changed on disk, newest first.
@@ -168,8 +172,12 @@ impl App {
             config::Loaded::Ok(c) => (c, false, None),
             config::Loaded::Broken(c, e) => (c, false, Some(e)),
         };
+        crate::timing::mark("config read");
         let (root, targets) = crate::args::targets();
-        let mut app = App::new(cfg, root.clone(), first, crate::theme::read_omarchy());
+        crate::timing::mark("project root found");
+        let omarchy = crate::theme::read_omarchy();
+        crate::timing::mark("omarchy theme read");
+        let mut app = App::new(cfg, root.clone(), first, omarchy);
         app.to_open = targets;
         if app.to_open.is_empty()
             && let Some(s) = session::load(&root)
@@ -243,6 +251,7 @@ impl App {
             title: String::new(),
             window: session::WindowFrame::default(),
             waiters: Vec::new(),
+            polls: 0,
             note: None,
             outside: Vec::new(),
             proposals: Vec::new(),
@@ -251,17 +260,30 @@ impl App {
 
     /// Starts the workers and opens the files asked for. Runs once, with the window's waker.
     pub fn setup(&mut self, waker: rune::Waker) {
+        crate::timing::mark("window ready, starting workers");
         let svc = Services::start(self.ed.root.clone(), waker, self.cfg.ipc.enabled);
+        crate::timing::mark("workers started");
         for (path, at) in self.to_open.drain(..) {
             svc.open(path, at);
         }
         self.svc = Some(svc);
+        // Rune finds installed fonts through a list it builds once per thread, in about 20 ms.
+        // One measurement in the editor font builds it here, while the workers open files, so
+        // the first frame does not. When the GPU is slow to start, this time is free.
+        rune::text::measure("editor", &[], crate::ui::font::code(self), None);
+        crate::timing::mark("font list loaded");
     }
 
     /// Applies what the workers sent. True when anything visible changed.
     pub fn poll(&mut self, clock: f64, tx: &mut Tx) -> bool {
-        self.clock = clock;
         let mut changed = false;
+        if self.polls < 3 {
+            self.polls += 1;
+            crate::timing::mark(&format!("poll {} (frame {} is next)", self.polls, self.polls));
+            // The second frame draws the unseen glyph warm-up (`ui::warm_glyphs`).
+            changed = self.polls == 2;
+        }
+        self.clock = clock;
         let events: Vec<Event> = match &self.svc {
             Some(svc) => svc.events.try_iter().collect(),
             None => Vec::new(),
@@ -369,8 +391,8 @@ impl App {
                 }
                 (_, Err(e)) => self.ed.error(e),
             },
-            Event::Files(files) => {
-                self.tree.index = tree::TreeIndex::build(&files);
+            Event::Files(files, index) => {
+                self.tree.index = index;
                 self.files = files;
                 if let Overlay::Pick(p) = &mut self.overlay
                     && p.kind == PickKind::Files

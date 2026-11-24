@@ -13,9 +13,10 @@ pub fn search_matches(buf: &Buffer, pattern: &str, first_line: usize, last_line:
     }
     let Ok(re) = Regex::new(pattern) else { return Vec::new() };
     let mut out = Vec::new();
+    let mut chars = Vec::new();
     for l in first_line..=last_line.min(buf.last_line()) {
         let start = buf.idx(Pos::new(l, 0));
-        let chars: Vec<char> = buf.line(l).chars().collect();
+        buf.line_chars(l, &mut chars);
         for m in re.find_all(&chars) {
             if m.end > m.start {
                 out.push((start + m.start, start + m.end));
@@ -25,19 +26,21 @@ pub fn search_matches(buf: &Buffer, pattern: &str, first_line: usize, last_line:
     out
 }
 
-fn line_matches(buf: &Buffer, re: &Regex, l: usize) -> Vec<(usize, usize)> {
-    let chars: Vec<char> = buf.line(l).chars().collect();
-    re.find_all(&chars).into_iter().map(|m| (m.start, m.end)).collect()
+/// The char ranges of the matches on line `l`. `chars` is scratch space, reused across lines.
+fn line_matches(buf: &Buffer, re: &Regex, l: usize, chars: &mut Vec<char>) -> Vec<(usize, usize)> {
+    buf.line_chars(l, chars);
+    re.find_all(chars).into_iter().map(|m| (m.start, m.end)).collect()
 }
 
 /// The next match after (or before) `from`, wrapping around the text. Returns its char range
 /// and whether the search wrapped.
 pub(crate) fn find(buf: &Buffer, re: &Regex, from: Pos, backward: bool) -> Option<((usize, usize), bool)> {
     let n = buf.last_line() + 1;
+    let mut chars = Vec::new();
     for step in 0..=n {
         let (l, wrapped) =
             if backward { ((from.line + n - step % n) % n, step > from.line) } else { ((from.line + step) % n, from.line + step > n - 1) };
-        let ms = line_matches(buf, re, l);
+        let ms = line_matches(buf, re, l, &mut chars);
         let hit = if backward {
             if step == 0 {
                 ms.iter().rev().find(|m| m.0 < from.col).copied()
@@ -159,7 +162,7 @@ pub(crate) fn match_here(ed: &mut Editor, forward: bool) -> Option<(usize, usize
     let cur = ed.cursor();
     let buf = &ed.doc().buf;
     let start = buf.idx(Pos::new(cur.line, 0));
-    let ms = line_matches(buf, &re, cur.line);
+    let ms = line_matches(buf, &re, cur.line, &mut Vec::new());
     let here = if forward {
         ms.iter().find(|m| m.1 > cur.col || (m.0 == cur.col && m.1 == m.0))
     } else {

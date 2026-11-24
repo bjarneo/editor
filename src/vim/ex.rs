@@ -343,8 +343,9 @@ fn parse_addr<'a>(ed: &mut Editor, s: &'a str) -> Result<(Option<isize>, &'a str
             let re = Regex::new(pat)?;
             let buf = ed.buf();
             let n = last + 1;
+            let mut chars = Vec::new();
             let hit = (1..=n).map(|k| if d == '/' { (cur + k).rem_euclid(n) } else { (cur - k).rem_euclid(n) }).find(|&l| {
-                let chars: Vec<char> = buf.line(l as usize).chars().collect();
+                buf.line_chars(l as usize, &mut chars);
                 re.is_match(&chars)
             });
             base = Some(hit.ok_or_else(|| format!("E486: Pattern not found: {pat}"))?);
@@ -450,9 +451,10 @@ fn substitute(ed: &mut Editor, r: (usize, usize), args: &str) -> Res {
     let mut lines = 0;
     let mut last_line = None;
     let mut shift = 0usize;
+    let mut text = Vec::new();
     for l in a..=b {
         let line_no = l + shift;
-        let text: Vec<char> = ed.buf().line(line_no).chars().collect();
+        ed.buf().line_chars(line_no, &mut text);
         let ms: Vec<Match> = if global { re.find_all(&text) } else { re.find_at(&text, 0).into_iter().collect() };
         if ms.is_empty() {
             continue;
@@ -556,9 +558,10 @@ fn global(ed: &mut Editor, r: (usize, usize), args: &str, invert: bool, out: &mu
     }
     let re = Regex::new(&pat)?;
     let buf = ed.buf();
+    let mut chars = Vec::new();
     let lines: Vec<usize> = (r.0..=r.1.min(buf.last_line()))
         .filter(|&l| {
-            let chars: Vec<char> = buf.line(l).chars().collect();
+            buf.line_chars(l, &mut chars);
             re.is_match(&chars) != invert
         })
         .collect();

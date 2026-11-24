@@ -15,9 +15,11 @@ mod ipc;
 mod scenes;
 mod services;
 mod theme;
+mod timing;
 mod ui;
 
 fn main() {
+    timing::start();
     // `editor ctl …` and `editor mcp` talk to a running editor and never open a window.
     let argv: Vec<String> = std::env::args().collect();
     match argv.get(1).map(String::as_str) {
@@ -34,6 +36,7 @@ fn main() {
             std::process::exit(code);
         }
     }
+    timing::mark("arguments and running-editor check");
     rune::prewarm_gpu();
     rune::tooling::set_app_id("editor");
     // Open at the size (and, off Wayland, the place) the window had when it last closed.

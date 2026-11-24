@@ -2,10 +2,15 @@
 //! the file tree. Walked again when a changed path shows a file came or went.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::time::Duration;
 
+use ignore::WalkState;
+
 use super::{Event, Out};
+use crate::app::tree::TreeIndex;
 
 /// The index stops here, so a home folder opened by mistake stays quick.
 const MAX_FILES: usize = 200_000;
@@ -16,7 +21,7 @@ pub fn start(root: PathBuf, out: Out) -> Sender<Vec<PathBuf>> {
         .name("editor-index".into())
         .spawn(move || {
             let mut files = walk(&root);
-            out.send(Event::Files(files.clone()));
+            out.send(Event::Files(files.clone(), TreeIndex::build(&files)));
             while let Ok(first) = rx.recv() {
                 // Coalesce a burst (a git checkout touches many files).
                 std::thread::sleep(Duration::from_millis(150));
@@ -31,7 +36,7 @@ pub fn start(root: PathBuf, out: Out) -> Sender<Vec<PathBuf>> {
                 });
                 if stale {
                     files = walk(&root);
-                    out.send(Event::Files(files.clone()));
+                    out.send(Event::Files(files.clone(), TreeIndex::build(&files)));
                 }
             }
         })
@@ -39,9 +44,12 @@ pub fn start(root: PathBuf, out: Out) -> Sender<Vec<PathBuf>> {
     tx
 }
 
+/// Every file under `root` that git doesn't ignore, relative to it and sorted. The walk runs
+/// on several threads, so a large project indexes in a fraction of the time.
 pub fn walk(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    let walker = ignore::WalkBuilder::new(root)
+    let all = Mutex::new(Vec::new());
+    let count = AtomicUsize::new(0);
+    ignore::WalkBuilder::new(root)
         .hidden(false)
         .git_ignore(true)
         .git_global(true)
@@ -49,17 +57,38 @@ pub fn walk(root: &Path) -> Vec<String> {
         .parents(true)
         .require_git(false)
         .filter_entry(|e| e.file_name() != ".git")
-        .build();
-    for entry in walker.flatten() {
-        if entry.file_type().is_some_and(|t| t.is_file())
-            && let Ok(rel) = entry.path().strip_prefix(root)
-        {
-            files.push(rel.to_string_lossy().replace('\\', "/"));
-            if files.len() >= MAX_FILES {
-                break;
-            }
-        }
-    }
-    files.sort();
+        .build_parallel()
+        .run(|| {
+            let mut batch = Batch { files: Vec::new(), all: &all };
+            let count = &count;
+            Box::new(move |entry| {
+                let Ok(entry) = entry else { return WalkState::Continue };
+                if entry.file_type().is_some_and(|t| t.is_file())
+                    && let Ok(rel) = entry.path().strip_prefix(root)
+                {
+                    batch.files.push(rel.to_string_lossy().replace('\\', "/"));
+                    if count.fetch_add(1, Ordering::Relaxed) + 1 >= MAX_FILES {
+                        return WalkState::Quit;
+                    }
+                }
+                WalkState::Continue
+            })
+        });
+    let mut files = all.into_inner().unwrap_or_else(|e| e.into_inner());
+    files.sort_unstable();
+    files.truncate(MAX_FILES);
     files
+}
+
+/// One walker thread's files. They join the shared list once, when the thread ends.
+struct Batch<'a> {
+    files: Vec<String>,
+    all: &'a Mutex<Vec<String>>,
+}
+
+impl Drop for Batch<'_> {
+    fn drop(&mut self) {
+        let mut all = self.all.lock().unwrap_or_else(|e| e.into_inner());
+        all.append(&mut self.files);
+    }
 }

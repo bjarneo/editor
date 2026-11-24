@@ -66,8 +66,9 @@ pub enum Event {
         what: WriteKind,
         result: Result<(), String>,
     },
-    /// The project's files, relative to the root, sorted.
-    Files(Vec<String>),
+    /// The project's files, relative to the root, sorted, and the tree built from them off
+    /// the UI thread.
+    Files(Vec<String>, crate::app::tree::TreeIndex),
     Git(GitInfo),
     Signs {
         path: PathBuf,

@@ -56,6 +56,18 @@ debug = "line-tables-only"
 opt-level = 2
 debug = false
 
+# The shipped build: one codegen unit and link-time optimization across every crate, so hot
+# paths inline through Rune, ropey and tree-sitter. Symbols are stripped. For quick local
+# release builds, use `cargo build --profile quick`.
 [profile.release]
+codegen-units = 1
+lto = "fat"
+incremental = false
+strip = "symbols"
+
+[profile.quick]
+inherits = "release"
 codegen-units = 16
+lto = false
 incremental = true
+strip = false

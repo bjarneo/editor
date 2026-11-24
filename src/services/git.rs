@@ -1,7 +1,7 @@
 //! Git, read with the `git` command: the branch, each file's status for the tree, and the
 //! gutter signs of a buffer against `HEAD`. No full git UI: that is out of scope.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{Sender, channel};
@@ -19,6 +19,8 @@ pub struct GitInfo {
     /// Status letter by path relative to the root: `M` modified, `U` untracked, `A` added,
     /// `D` deleted.
     pub status: HashMap<String, char>,
+    /// Every folder with a changed path inside, for the tree's mark on folders.
+    pub dirs: HashSet<String>,
 }
 
 /// A gutter sign on one line.
@@ -117,7 +119,24 @@ pub fn info(root: &Path) -> GitInfo {
             status.insert(rel, letter);
         }
     }
-    GitInfo { branch, status }
+    let dirs = changed_dirs(&status);
+    GitInfo { branch, status, dirs }
+}
+
+/// The folders that hold the paths in `status`, at any depth.
+fn changed_dirs(status: &HashMap<String, char>) -> HashSet<String> {
+    let mut dirs = HashSet::new();
+    for path in status.keys() {
+        let mut p = path.as_str();
+        // A folder already in the set has its parents in it too.
+        while let Some((parent, _)) = p.rsplit_once('/') {
+            if !dirs.insert(parent.to_string()) {
+                break;
+            }
+            p = parent;
+        }
+    }
+    dirs
 }
 
 /// Signs for `text` (the buffer now) against the file at `HEAD`. `None` when git doesn't track
@@ -155,6 +174,15 @@ pub fn diff_signs(base: &str, text: &str) -> Vec<Sign> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folders_with_changes_include_every_parent() {
+        let status: HashMap<String, char> =
+            [("src/app/mod.rs", 'M'), ("src/ui/text.rs", 'U'), ("README.md", 'M')].iter().map(|(p, l)| (p.to_string(), *l)).collect();
+        let mut dirs: Vec<String> = changed_dirs(&status).into_iter().collect();
+        dirs.sort();
+        assert_eq!(dirs, vec!["src", "src/app", "src/ui"]);
+    }
 
     #[test]
     fn signs_mark_added_changed_and_deleted_lines() {
