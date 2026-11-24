@@ -1,4 +1,5 @@
-# Builds the promo site in site/ with Astro and publishes it to GitHub Pages.
+# Builds the promo site in site/ with Astro and publishes it to GitHub Pages. The release
+# workflow starts it again after each release, so the download links follow the latest one.
 name: Pages
 
 on:
@@ -6,7 +7,6 @@ on:
     branches: [main]
     paths:
       - "site/**"
-      - "Cargo.toml"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -33,6 +33,12 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
+      - name: Find the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --json tagName -q .tagName -R "$GITHUB_REPOSITORY" 2>/dev/null || true)
+          echo "EDITOR_VERSION=${tag#v}" >> "$GITHUB_ENV"
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

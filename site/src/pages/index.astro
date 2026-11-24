@@ -5,10 +5,11 @@ import Plate from "../components/Plate.astro";
 import themes from "../data/themes.json";
 import "../styles/site.css";
 
-// The version on the page and in every download link comes from the crate. Astro builds
-// from site/, so the crate is one folder up.
+// The version on the page and in every download link is the latest release, which the Pages
+// workflow passes in EDITOR_VERSION. Without it (a local build), the crate's version is used.
+// Astro builds from site/, so the crate is one folder up.
 const cargo = readFileSync(resolve(process.cwd(), "../Cargo.toml"), "utf8");
-const version = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ?? "0.0.0";
+const version = process.env.EDITOR_VERSION || (cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ?? "0.0.0");
 const repo = "https://github.com/bjarneo/editor";
 const tag = `v${version}`;
 const archive = (target: string) => `editor-${tag}-${target}.tar.gz`;
@@ -44,6 +45,33 @@ const keys = [
   ["File tree", ["SPC", "e"], ["Ctrl", "B"]],
   ["Settings", ["SPC", ","], ["Ctrl", ","]],
 ];
+
+// Revision history, newest first. A row shows once its release is the latest or older.
+const revisions = [
+  {
+    rev: "0.3.0",
+    date: "2026-11-24",
+    changes:
+      "Faster: the finder ranks 200,000 paths in 2 ms a key, the file tree builds off the UI thread, the first edit costs 0.8 ms and <code>:s</code> is 26% faster. The binary is 28% smaller.",
+  },
+  {
+    rev: "0.2.0",
+    date: "2026-11-24",
+    changes:
+      "AI agents drive a running editor over <code>editor ctl</code> and <code>editor mcp</code>. Proposals open as a diff. Outside changes are marked. <code>:'&lt;,'&gt;!cmd</code> filters lines through any command.",
+  },
+  {
+    rev: "0.1.0",
+    date: "2026-11-24",
+    changes: `First release: Neovim and classic keymaps, tree-sitter objects, LSP, the finder, ${themes.length} themes and Omarchy theming.`,
+  },
+];
+// Compares two versions: above 0 when `a` is newer than `b`.
+const newer = (a: string, b: string) => {
+  const [x, y] = [a, b].map((v) => v.split(".").map(Number));
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+  return 0;
+};
 
 const shots = [
   { id: "tokyo-night", name: "Tokyo Night" },
@@ -399,8 +427,13 @@ xattr -d com.apple.quarantine editor-*/editor
               <tr><th scope="col">Rev</th><th scope="col">Date</th><th scope="col">Changes</th></tr>
             </thead>
             <tbody>
-              <tr><th scope="row" class="mono">0.2.0</th><td class="mono">2026-11-24</td><td>AI agents drive a running editor over <code>editor ctl</code> and <code>editor mcp</code>. Proposals open as a diff. Outside changes are marked. <code>:'&lt;,'&gt;!cmd</code> filters lines through any command.</td></tr>
-              <tr><th scope="row" class="mono">0.1.0</th><td class="mono">2026-11-24</td><td>First release: Neovim and classic keymaps, tree-sitter objects, LSP, the finder, {themes.length} themes and Omarchy theming.</td></tr>
+              {
+                revisions
+                  .filter((r) => newer(version, r.rev) >= 0)
+                  .map((r) => (
+                    <tr><th scope="row" class="mono">{r.rev}</th><td class="mono">{r.date}</td><td set:html={r.changes} /></tr>
+                  ))
+              }
             </tbody>
           </table>
         </div>
