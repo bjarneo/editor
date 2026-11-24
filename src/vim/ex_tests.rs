@@ -191,3 +191,152 @@ fn bang_filters_a_range_or_runs_a_command() {
     assert_eq!(run_ex(&mut e, "!cargo fmt"), vec![Action::Shell("cargo fmt".into())]);
     assert!(matches!(run_ex(&mut e, "!").as_slice(), [Action::Error(_)]));
 }
+
+// The tests below check commands that docs/keymaps.md lists.
+
+#[test]
+fn put_copy_join_sort_and_counts() {
+    let mut e = ed("a\nb\nc");
+    run_ex(&mut e, "1y x");
+    run_ex(&mut e, "$put x");
+    assert_eq!(text(&e), "a\nb\nc\na\n");
+    run_ex(&mut e, "1put! x");
+    assert_eq!(text(&e), "a\na\nb\nc\na\n");
+    let mut e = ed("x1\ny2\nz3");
+    run_ex(&mut e, "3t0");
+    assert_eq!(text(&e), "z3\nx1\ny2\nz3");
+    run_ex(&mut e, "1co$");
+    assert_eq!(text(&e), "z3\nx1\ny2\nz3\nz3\n");
+    let mut e = ed("a\n  b\nc");
+    run_ex(&mut e, "1,2j!");
+    assert_eq!(text(&e), "a  b\nc");
+    let mut e = ed("b10\na2\nB1\na2");
+    run_ex(&mut e, "sort n");
+    assert_eq!(text(&e), "B1\na2\na2\nb10");
+    run_ex(&mut e, "sort u");
+    assert_eq!(text(&e), "B1\na2\nb10");
+    run_ex(&mut e, "sort! i");
+    assert_eq!(text(&e), "b10\nB1\na2");
+    let mut e = ed("aa\na\na");
+    run_ex(&mut e, "%s/a//gn");
+    assert_eq!(text(&e), "aa\na\na");
+    assert_eq!(e.msg.as_ref().map(|m| m.text.as_str()), Some("4 matches on 3 lines"));
+    run_ex(&mut e, "1");
+    run_ex(&mut e, "s/a/b/ 2");
+    assert_eq!(text(&e), "ba\nb\na");
+    run_ex(&mut e, "u");
+    assert_eq!(text(&e), "aa\na\na");
+    run_ex(&mut e, "red");
+    assert_eq!(text(&e), "ba\nb\na");
+    let mut e = ed("x");
+    run_ex(&mut e, ">>");
+    assert_eq!(text(&e), "        x");
+    run_ex(&mut e, "<");
+    assert_eq!(text(&e), "    x");
+}
+
+#[test]
+fn addresses_marks_and_patterns() {
+    let mut e = ed("a\nb\nc\nd\ne");
+    feed(&mut e, "jmajjmb");
+    run_ex(&mut e, "'a,'bd");
+    assert_eq!(text(&e), "a\ne");
+    let mut e = ed("a\nfoo\nb\nbar\nc");
+    run_ex(&mut e, "/bar/d");
+    assert_eq!(text(&e), "a\nfoo\nb\nc");
+    run_ex(&mut e, "?foo?d");
+    assert_eq!(text(&e), "a\nb\nc");
+    run_ex(&mut e, "$");
+    assert_eq!(cur(&e).0, 2);
+    run_ex(&mut e, "1");
+    run_ex(&mut e, ".+1");
+    assert_eq!(cur(&e).0, 1);
+    run_ex(&mut e, "-");
+    assert_eq!(cur(&e).0, 0);
+    let mut e = ed("a\nb\nc\nd");
+    feed(&mut e, "majmbjmcjmd");
+    run_ex(&mut e, "delm a-c");
+    feed(&mut e, "'a");
+    assert!(e.msg.as_ref().is_some_and(|m| m.text.starts_with("E20")));
+    e.msg = None;
+    feed(&mut e, "gg'd");
+    assert_eq!((cur(&e).0, e.msg.clone()), (3, None));
+    run_ex(&mut e, "delm!");
+    feed(&mut e, "gg'd");
+    assert_eq!(cur(&e).0, 0);
+    let mut e = ed("x");
+    for (q, want) in [("ts?", "  ts=4"), ("sw?", "  sw=4"), ("et?", "  et=true"), ("so?", "  so=8"), ("wrap?", "  wrap=false")] {
+        run_ex(&mut e, &format!("set {q}"));
+        assert_eq!(e.msg.as_ref().map(|m| m.text.as_str()), Some(want));
+    }
+}
+
+#[test]
+fn ex_commands_that_ask_the_app() {
+    let mut e = ed("x");
+    let one = [
+        ("bnext", Action::NextBuffer),
+        ("bp", Action::PrevBuffer),
+        ("bN", Action::PrevBuffer),
+        ("bd", Action::CloseBuffer),
+        ("bw", Action::CloseBuffer),
+        ("ls", Action::PickBuffer),
+        ("buffers", Action::PickBuffer),
+        ("b", Action::PickBuffer),
+        ("Find", Action::FindFile),
+        ("Files", Action::FindFile),
+        ("Grep", Action::GrepProject),
+        ("rg", Action::GrepProject),
+        ("Explore", Action::ToggleTree),
+        ("Ex", Action::ToggleTree),
+        ("Tree", Action::ToggleTree),
+        ("ca", Action::CodeActions),
+        ("e", Action::Reload),
+        ("close", Action::Quit { force: false }),
+        ("qa!", Action::QuitAll { force: true }),
+        ("sav /abs/f.rs", Action::Save(Some(PathBuf::from("/abs/f.rs")))),
+    ];
+    for (cmd, act) in one {
+        assert_eq!(run_ex(&mut e, cmd), vec![act], ":{cmd}");
+    }
+    for cmd in ["wqa", "xa"] {
+        assert_eq!(run_ex(&mut e, cmd), vec![Action::SaveAll, Action::QuitAll { force: false }], ":{cmd}");
+    }
+}
+
+#[test]
+fn cmdline_moves_deletes_and_recalls() {
+    let mut e = ed("x");
+    let line = |e: &crate::editor::Editor| e.cmd.as_ref().map(|c| c.text.clone()).unwrap_or_default();
+    let steps = [
+        (":abc def<c-w>", "abc "),
+        ("<c-b>X", "Xabc "),
+        ("<c-e>Y", "Xabc Y"),
+        ("<home><del>", "abc Y"),
+        ("<end><left>Z", "abc ZY"),
+        ("<right><c-h>", "abc Z"),
+        ("<tab>", "abc Z\t"),
+        ("<c-u>", ""),
+    ];
+    for (keys, want) in steps {
+        feed(&mut e, keys);
+        assert_eq!(line(&e), want, "after {keys}");
+    }
+    feed(&mut e, "set ts=3<c-j>");
+    assert_eq!((e.opts.tab_width, e.mode), (3, Mode::Normal));
+    feed(&mut e, ":se<c-p>");
+    assert_eq!(line(&e), "set ts=3");
+    feed(&mut e, "<c-n>");
+    assert_eq!(line(&e), "se");
+    feed(&mut e, "<c-c>");
+    assert_eq!((e.mode, e.cmd.is_none()), (Mode::Normal, true));
+    // Ctrl-e and Ctrl-y scroll while `:s///c` asks.
+    let src: String = (0..40).map(|_| "a\n").collect();
+    let mut e = ed(&src);
+    feed(&mut e, ":%s/a/b/gc<cr><c-e>");
+    assert_eq!(e.doc().view.top, 1);
+    assert!(super::confirming(&e.vim));
+    feed(&mut e, "<c-y>q");
+    assert_eq!(e.doc().view.top, 0);
+    assert!(!super::confirming(&e.vim));
+}

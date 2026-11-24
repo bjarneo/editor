@@ -122,3 +122,12 @@ fn cursors_that_meet_merge() {
     feed(&mut e, "<home>");
     assert!(e.doc().extra.is_empty());
 }
+
+#[test]
+fn alt_ctrl_up_adds_cursors_above_and_tab_indents_at_each() {
+    let mut e = classic("aa\nbb\ncc");
+    feed(&mut e, "<c-end><c-a-up><c-a-up>");
+    assert_eq!(extra(&e), vec![(1, 2), (0, 2)]);
+    feed(&mut e, "X<tab>");
+    assert_eq!(text(&e), "aaX    \nbbX    \nccX    ");
+}

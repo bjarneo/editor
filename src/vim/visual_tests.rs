@@ -131,3 +131,52 @@ fn visual_comment_lines() {
     feed(&mut e, "Vjgc");
     assert_eq!(text(&e), "// x\n// y");
 }
+
+// The tests below check keys that docs/keymaps.md lists.
+
+#[test]
+fn visual_line_keys_and_kind_switches() {
+    let steps = [
+        ("ab\ncd", "vD", "cd"),
+        ("ab\ncd", "vX", "cd"),
+        ("ab\ncd", "vSx<esc>", "x\ncd"),
+        ("ab\ncd", "vRx<esc>", "x\ncd"),
+        ("ab\ncd", "vCx<esc>", "x\ncd"),
+        ("ab\ncd", "vlAX<esc>", "abX\ncd"),
+        ("ab\ncd", "vlIX<esc>", "Xab\ncd"),
+        ("ab\ncd", "VjAX<esc>", "ab\ncdX"),
+        ("a\n  b", "VjgJ", "a  b"),
+        ("{\nx\n}", "Vjj=", "{\n    x\n}"),
+        ("x", "V3>", "            x"),
+        ("ab\ncd\nef", "<c-v>jlD", "\n\nef"),
+        ("ab\ncd\nef", "<c-v>jC!<esc>", "!\n!\nef"),
+        ("ab cd", "viwy$p", "ab cdab"),
+    ];
+    for (src, keys, want) in steps {
+        let mut e = ed(src);
+        feed(&mut e, keys);
+        assert_eq!(text(&e), want, "{keys} on {src:?}");
+    }
+    let mut e = ed("ab\ncd");
+    feed(&mut e, "vY");
+    assert_eq!((e.regs.unnamed.text.as_str(), e.regs.unnamed.linewise), ("ab\n", true));
+    feed(&mut e, "v\"ayl");
+    assert_eq!(e.regs.get(Some('a')).map(|r| r.text.as_str()), Some("a"));
+    feed(&mut e, "vv");
+    assert_eq!(e.mode, Mode::Normal, "v again ends Visual mode");
+    feed(&mut e, "vV");
+    assert_eq!(e.mode, Mode::Visual(VisualKind::Line));
+    feed(&mut e, "<c-v>");
+    assert_eq!(e.mode, Mode::Visual(VisualKind::Block));
+    feed(&mut e, "<c-q>");
+    assert_eq!(e.mode, Mode::Normal);
+    feed(&mut e, "0vlO");
+    assert_eq!((cur(&e), e.doc().view.anchor.map(|p| p.col)), ((0, 0), Some(1)));
+    feed(&mut e, "<esc>v?c<cr>");
+    assert_eq!((e.mode, cur(&e)), (Mode::Visual(VisualKind::Char), (1, 0)));
+    feed(&mut e, "<esc>");
+    at(&mut e, 0, 0);
+    feed(&mut e, "vap");
+    assert_eq!(e.mode, Mode::Visual(VisualKind::Line));
+    assert!(feed(&mut e, "<esc>").is_empty());
+}

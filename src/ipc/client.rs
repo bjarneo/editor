@@ -258,9 +258,16 @@ pub fn open_in_running(root: &Path, files: &[(PathBuf, Option<editor::buffer::Po
             "activation_token": token,
         });
         let timeout = if wait && last { None } else { Some(Duration::from_secs(10)) };
-        if let Err(e) = super::call(&socket, "open", args, timeout) {
-            eprintln!("editor: {e}");
-            return Some(1);
+        match super::call(&socket, "open", args, timeout) {
+            Ok(r) if !r.ok => {
+                eprintln!("editor: {}", r.error.unwrap_or_default());
+                return Some(1);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("editor: {e}");
+                return Some(1);
+            }
         }
     }
     Some(0)

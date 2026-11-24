@@ -609,12 +609,12 @@ fn picking_now(rt: &mut Runtime<App>) -> bool {
 fn every_palette_command_does_what_it_says() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::write(root.join("a.rs"), "fn a() {}\n").unwrap();
-    std::fs::write(root.join("b.rs"), "fn b() {}\n").unwrap();
+    std::fs::write(root.join("a.txt"), "alpha\n").unwrap();
+    std::fs::write(root.join("b.txt"), "beta\n").unwrap();
     let mut app = App::new(Config::default(), root.clone(), false, None);
     app.svc = Some(crate::services::Services::start(root.clone(), std::sync::Arc::new(|| {}), false));
     let mut rt = run(app);
-    for f in ["a.rs", "b.rs"] {
+    for f in ["a.txt", "b.txt"] {
         let path = root.join(f);
         rt.update(move |s: &mut App, _| s.open_path(path, None));
         settle(&mut rt, "open", |s| s.ed.has_doc() && s.ed.buf().path.as_deref().is_some_and(|p| p.ends_with(f)));
@@ -641,8 +641,8 @@ fn every_palette_command_does_what_it_says() {
         s.on_settings = false;
         s.settings = None;
     });
-    check(&mut rt, "next", "next goes to the next buffer", &|s| s.ed.buf().path.as_deref().is_some_and(|p| p.ends_with("a.rs")));
-    check(&mut rt, "prev", "prev goes to the previous buffer", &|s| s.ed.buf().path.as_deref().is_some_and(|p| p.ends_with("b.rs")));
+    check(&mut rt, "next", "next goes to the next buffer", &|s| s.ed.buf().path.as_deref().is_some_and(|p| p.ends_with("a.txt")));
+    check(&mut rt, "prev", "prev goes to the previous buffer", &|s| s.ed.buf().path.as_deref().is_some_and(|p| p.ends_with("b.txt")));
     check(&mut rt, "keymap=classic", "the classic keymap", &|s| s.ed.keymap == Keymap::Classic);
     check(&mut rt, "keymap=neovim", "the Neovim keymap", &|s| s.ed.keymap == Keymap::Vim);
     for (id, mode) in [("theme=light", "light"), ("theme=system", "system"), ("theme=omarchy", "omarchy"), ("theme=dark", "dark")] {
@@ -695,4 +695,105 @@ fn a_drag_near_the_bottom_selects_what_is_under_the_pointer() {
     rt.frame(1.0 / 60.0);
     assert_eq!(rt.state.ed.doc().view.top, top, "the text held still under the pointer");
     assert_eq!(rt.state.ed.cursor().line, top + row as usize, "the cursor is on the row under the pointer");
+}
+
+/// Keys of the pickers, the tree, Settings, a proposal, completion and setup, as docs/keymaps.md lists them.
+#[test]
+fn panel_and_popup_keys_from_the_key_reference() {
+    let mut a = app("neovim");
+    for n in ["two", "three"] {
+        let mut b = Buffer::from_str("x\n");
+        b.path = Some(std::env::temp_dir().join(format!("editor-test-{n}.rs")));
+        a.ed.docs.push(Doc::new(b));
+    }
+    let files: Vec<String> = ["Cargo.toml", "src/lib.rs", "src/main.rs"].iter().map(|s| s.to_string()).collect();
+    a.tree.index = super::tree::TreeIndex::build(&files);
+    let mut rt = run(a);
+    let (plain, shift) = (Mods::default(), Mods { shift: true, ..Default::default() });
+    let pick = |rt: &Runtime<App>| if let Overlay::Pick(p) = &rt.state.overlay { (p.query.clone(), p.sel) } else { ("closed".into(), 0) };
+    leader(&mut rt, "b");
+    for (k, sel) in [('n', 1), ('p', 0), ('j', 1), ('k', 0)] {
+        ctrl(&mut rt, k);
+        assert_eq!(pick(&rt).1, sel, "Ctrl {k}");
+    }
+    for m in [plain, plain, shift] {
+        press(&mut rt, Key::Tab, m);
+    }
+    assert_eq!(pick(&rt).1, 1, "Tab and Shift+Tab move");
+    typ(&mut rt, "test-t");
+    ctrl(&mut rt, 'w');
+    assert_eq!(pick(&rt).0, "test-");
+    ctrl(&mut rt, 'u');
+    typ(&mut rt, "three\n");
+    assert_eq!((pick(&rt).0.as_str(), rt.state.ed.active), ("closed", 2));
+    // The tree: o opens a folder, G and g go to the ends, h goes to the parent and closes it, q leaves.
+    typ(&mut rt, " e");
+    for (keys, want) in [("o", "src"), ("G", "Cargo.toml"), ("g", "src"), ("jh", "src")] {
+        typ(&mut rt, keys);
+        assert_eq!(rt.state.tree.sel.as_deref(), Some(want), "tree {keys}");
+    }
+    typ(&mut rt, "hq");
+    assert!(!rt.state.tree.open.contains("src") && !rt.state.tree.focus);
+    // Settings: J, K, Tab, Shift+Tab and 1 to 5 pick a section. j and k move. h, l, Enter and Space change.
+    typ(&mut rt, ":Settings\nJ");
+    let section = |rt: &Runtime<App>| rt.state.settings.as_ref().map(|s| s.section);
+    assert_eq!(section(&rt), Some(super::settings::Section::Font));
+    typ(&mut rt, "K");
+    press(&mut rt, Key::Tab, plain);
+    press(&mut rt, Key::Tab, shift);
+    assert_eq!(section(&rt), Some(super::settings::Section::Appearance));
+    typ(&mut rt, "3l");
+    assert_eq!(rt.state.cfg.editor.numbers, "relative");
+    typ(&mut rt, "hj\n");
+    assert_eq!((rt.state.cfg.editor.numbers.as_str(), rt.state.cfg.editor.cursor.as_str()), ("hybrid", "bar"));
+    typ(&mut rt, " ");
+    assert_eq!(rt.state.cfg.editor.cursor, "underline");
+    // A proposal: Tab and ] go to the next change, [ to the one before, g to the top. Esc rejects, Enter accepts.
+    let src: String = (0..60).map(|i| format!("line {i}\n")).collect();
+    let mut rt = run(rust_app(&src));
+    let new = src.replace("line 2\n", "two\n").replace("line 50\n", "fifty\n");
+    assert!(ask(&mut rt, "propose", serde_json::json!({ "text": new })).ok);
+    let top = |rt: &Runtime<App>| rt.state.proposals[0].top;
+    let first = top(&rt);
+    press(&mut rt, Key::Tab, plain);
+    assert!(top(&rt) > first);
+    typ(&mut rt, "[");
+    assert_eq!(top(&rt), first);
+    typ(&mut rt, "]cg");
+    assert_eq!(top(&rt), 0);
+    press(&mut rt, Key::Escape, plain);
+    assert!(rt.state.proposals.is_empty() && text(&rt) == src);
+    assert!(ask(&mut rt, "propose", serde_json::json!({ "text": new })).ok);
+    press(&mut rt, Key::Enter, plain);
+    assert!(text(&rt).contains("fifty"));
+    // The completion list: Ctrl+N, Ctrl+P and Shift+Tab move, Tab takes an item, Ctrl+E closes it.
+    let list = |s: &mut App, _: &mut rune::Tx| {
+        let items = ["foo", "fob"].map(|l| crate::services::lsp::Item { label: l.into(), detail: "".into(), kind: "", insert: l.into() });
+        s.completion = Some(super::lsp::Completion { start: Pos::new(0, 0), items: items.to_vec(), shown: vec![0, 1], sel: 0 });
+    };
+    typ(&mut rt, "ggOfo");
+    rt.update(list);
+    ctrl(&mut rt, 'n');
+    ctrl(&mut rt, 'p');
+    press(&mut rt, Key::Tab, shift);
+    press(&mut rt, Key::Tab, plain);
+    assert!(text(&rt).starts_with("fob\n"), "{}", text(&rt));
+    rt.update(list);
+    ctrl(&mut rt, 'e');
+    assert!(rt.state.completion.is_none() && rt.state.ed.mode == Mode::Insert);
+    // Setup: j, k, h, l and arrows move, Enter and Space pick, Tab and Shift+Tab change the step, Esc goes back.
+    let mut rt = run(App::new(Config::default(), std::env::temp_dir(), true, None));
+    let st = |rt: &Runtime<App>| if let super::Screen::Setup(s) = &rt.state.screen { (s.step, s.focus, s.vim()) } else { (0, 0, true) };
+    typ(&mut rt, "jkljh");
+    press(&mut rt, Key::Down, plain);
+    typ(&mut rt, "k\n");
+    assert_eq!(st(&rt), (1, 1, false), "Enter picks the classic keymap");
+    typ(&mut rt, "k ");
+    assert_eq!(st(&rt), (1, 0, true), "Space picks the Neovim keymap");
+    press(&mut rt, Key::Tab, plain);
+    assert_eq!(st(&rt).0, 2);
+    press(&mut rt, Key::Tab, shift);
+    press(&mut rt, Key::Tab, plain);
+    typ(&mut rt, "\x1b");
+    assert_eq!(st(&rt).0, 1);
 }

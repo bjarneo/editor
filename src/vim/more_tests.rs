@@ -302,3 +302,171 @@ fn vim_keys_drop_extra_cursors() {
     feed(&mut e, "l");
     assert!(e.doc().extra.is_empty());
 }
+
+// The tests below check keys that docs/keymaps.md lists.
+
+#[test]
+fn g_forms_columns_and_line_motions() {
+    let mut e = ed("  foo bar  \nbaz qux\n\nend");
+    let steps = [
+        ("g_", (0, 8)),
+        ("g0", (0, 0)),
+        ("g$", (0, 10)),
+        ("4|", (0, 3)),
+        ("+", (1, 0)),
+        ("-", (0, 2)),
+        ("2_", (1, 0)),
+        ("<cr>", (2, 0)),
+        ("gk", (1, 0)),
+        ("wgE", (1, 2)),
+        ("<bs>", (1, 1)),
+        ("<c-n>", (2, 0)),
+        ("<c-p>", (1, 1)),
+        ("<c-h>", (1, 0)),
+        ("<c-j>", (2, 0)),
+        ("<c-m>", (3, 0)),
+        ("gj", (3, 0)),
+        ("<home>", (3, 0)),
+        ("<end>", (3, 2)),
+    ];
+    for (keys, want) in steps {
+        feed(&mut e, keys);
+        assert_eq!(cur(&e), want, "after {keys}");
+    }
+}
+
+#[test]
+fn star_forms_screen_lines_percent_and_scrolling() {
+    let mut e = ed("foo foobar foo");
+    for (keys, col) in [("*", 11), ("g#", 4), ("0g*", 4), ("$#", 0)] {
+        feed(&mut e, keys);
+        assert_eq!(cur(&e), (0, col), "after {keys}");
+    }
+    let src: String = (0..50).map(|i| format!("l{i}\n")).collect();
+    let mut e = ed(&src);
+    e.opts.scrolloff = 0;
+    for (keys, line) in [("L", 19), ("M", 9), ("3H", 2), ("3L", 17), ("50%", 24)] {
+        feed(&mut e, keys);
+        assert_eq!(cur(&e).0, line, "after {keys}");
+    }
+    let top = |e: &crate::editor::Editor| e.doc().view.top;
+    assert_eq!(top(&e), 5);
+    for (keys, want) in [("<c-e>", 6), ("<c-y>", 5), ("zt", 24), ("zb", 5), ("zz", 14), ("z<cr>", 24), ("z-", 5), ("z.", 14)] {
+        feed(&mut e, keys);
+        assert_eq!(top(&e), want, "after {keys}");
+    }
+    feed(&mut e, "10zt");
+    assert_eq!((cur(&e).0, top(&e)), (9, 9));
+    feed(&mut e, "<c-f>");
+    assert_eq!((cur(&e).0, top(&e)), (27, 27));
+    feed(&mut e, "<c-b>");
+    assert_eq!(top(&e), 9);
+    feed(&mut e, "<pgdn>");
+    assert_eq!(top(&e), 27);
+    feed(&mut e, "<pgup>");
+    assert_eq!(top(&e), 9);
+}
+
+#[test]
+fn registers_macros_marks_and_substitute_repeats() {
+    // `r` with Enter splits the line.
+    let mut e = ed("ab cd");
+    feed(&mut e, "lr<cr>");
+    assert_eq!(text(&e), "a\n cd");
+    // `&` repeats the last `:s` without its flags, `:&&` with them.
+    let mut e = ed("a a\na a\na a");
+    run_ex(&mut e, "s/a/b/g");
+    feed(&mut e, "j:&&<cr>");
+    assert_eq!(text(&e), "b b\nb b\na a");
+    feed(&mut e, "j&");
+    assert_eq!(text(&e), "b b\nb b\nb a");
+    // `"0` keeps the last yank after a delete.
+    let mut e = ed("one\ntwo");
+    feed(&mut e, "yyjdd\"0p");
+    assert_eq!(text(&e), "one\none\n");
+    // `qA` appends to macro `a`.
+    let mut e = ed("a\nb\nc");
+    feed(&mut e, "qaA1<esc>q");
+    feed(&mut e, "qAA2<esc>q");
+    feed(&mut e, "j@a");
+    assert_eq!(text(&e), "a12\nb12\nc");
+    // `@b` runs the text of register `b` as keys.
+    let mut e = ed("x abc");
+    feed(&mut e, "\"byiww@b");
+    assert_eq!(text(&e), "x bc");
+    // `` `a `` goes to the mark's column, `'a` to its line's first non-blank.
+    let mut e = ed("  abc\nxyz");
+    feed(&mut e, "llllmaj`a");
+    assert_eq!(cur(&e), (0, 4));
+    feed(&mut e, "j'a");
+    assert_eq!(cur(&e), (0, 2));
+    // Delete is `x`, and `.` repeats it.
+    let mut e = ed("abc");
+    feed(&mut e, "<del>.");
+    assert_eq!(text(&e), "c");
+}
+
+#[test]
+fn app_keys_and_prefixes_in_normal_mode() {
+    let mut e = ed("abc\ndef\nghi");
+    assert_eq!(feed(&mut e, "gD"), vec![Action::GotoDefinition]);
+    assert_eq!(feed(&mut e, "gT"), vec![Action::PrevBuffer]);
+    assert_eq!(feed(&mut e, "K"), vec![Action::Hover]);
+    assert_eq!(feed(&mut e, "ZZ"), vec![Action::Quit { force: false }]);
+    let acts = feed(&mut e, "xZZ");
+    assert!(acts.contains(&Action::Save(None)) && acts.contains(&Action::Quit { force: false }), "{acts:?}");
+    feed(&mut e, "<c-q>");
+    assert_eq!(e.mode, Mode::Visual(crate::editor::VisualKind::Block));
+    feed(&mut e, "<esc>3:");
+    assert_eq!(e.cmd.as_ref().map(|c| c.text.as_str()), Some(".,.+2"));
+    feed(&mut e, "<esc>Gggk<tab>");
+    assert_eq!(cur(&e).0, 2, "Tab goes forward in the jump list, as Ctrl-i does");
+}
+
+#[test]
+fn insert_mode_ctrl_keys() {
+    let mut e = ed("ab");
+    let steps = [
+        ("\"aylA<c-r>a<esc>", "aba"),
+        ("A<c-t><esc>", "    aba"),
+        ("A<c-d><esc>", "aba"),
+        ("A<c-h><esc>", "ab"),
+        ("A<c-j>x<esc>", "ab\nx\n"),
+        ("A<c-m>y<esc>", "ab\nx\ny\n"),
+        ("ggi<end>Z<home>Y<del><esc>", "YbZ\nx\ny\n"),
+        ("0i<tab><esc>", "    YbZ\nx\ny\n"),
+        ("ji<right><left><down><up><c-c>", "    YbZ\nx\ny\n"),
+        ("i<c-[>", "    YbZ\nx\ny\n"),
+    ];
+    for (keys, want) in steps {
+        feed(&mut e, keys);
+        assert_eq!(text(&e), want, "after {keys}");
+        assert_eq!(e.mode, Mode::Normal, "after {keys}");
+    }
+}
+
+#[test]
+fn tree_sitter_motions_for_ends_classes_and_parameters() {
+    let src = "struct A {\n    x: u32,\n}\n\nfn f(a: u32, b: u32) {\n    g(a, b);\n}\n";
+    let mut e = ed(src);
+    e.doc_mut().buf.path = Some(PathBuf::from("/tmp/editor-doc-test.rs"));
+    let steps = [
+        ("]f", (4, 0)),
+        ("]F", (6, 0)),
+        ("[c", (0, 0)),
+        ("]C", (2, 0)),
+        ("gg]a", (4, 5)),
+        ("]a", (4, 13)),
+        ("]A", (4, 18)),
+        ("[a", (4, 13)),
+        ("[A", (4, 10)),
+        ("G[f", (4, 0)),
+        ("gg]F", (6, 0)),
+    ];
+    for (keys, want) in steps {
+        feed(&mut e, keys);
+        assert_eq!(cur(&e), want, "after {keys}: {:?}", e.msg);
+    }
+    feed(&mut e, "]c");
+    assert!(e.msg.as_ref().is_some_and(|m| m.text == "E: no next class"));
+}

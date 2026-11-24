@@ -136,3 +136,40 @@ fn word_moves_with_ctrl_off_macos() {
     feed(&mut e, "<c-bs>");
     assert_eq!(text(&e), "bar baz");
 }
+
+#[test]
+fn redo_select_all_home_end_tab_and_find_keys() {
+    use crate::buffer::Pos;
+    let mut e = classic("ab\n  cd");
+    feed(&mut e, "x<c-z><c-y>");
+    assert_eq!(text(&e), "xab\n  cd", "Ctrl+Y redoes");
+    feed(&mut e, "<c-a>");
+    assert_eq!((e.doc().view.anchor, cur(&e)), (Some(Pos::new(0, 0)), (1, 4)));
+    feed(&mut e, "<tab>");
+    assert_eq!(text(&e), "    xab\n      cd", "Tab indents a selection over several lines");
+    feed(&mut e, "<s-tab>");
+    assert_eq!(text(&e), "xab\n  cd");
+    feed(&mut e, "<esc>");
+    assert_eq!(e.doc().view.anchor, None, "Esc drops the selection");
+    for (keys, want) in [("<c-home>", (0, 0)), ("<c-end>", (1, 4)), ("<home>", (1, 2)), ("<home>", (1, 0)), ("<s-end>", (1, 4))] {
+        feed(&mut e, keys);
+        assert_eq!(cur(&e), want, "after {keys}");
+    }
+    assert_eq!(e.doc().view.anchor, Some(Pos::new(1, 0)));
+    if !cfg!(target_os = "macos") {
+        feed(&mut e, "<c-home><c-del>");
+        assert_eq!(text(&e), "\n  cd", "Ctrl+Delete deletes the word after the cursor");
+    }
+    feed(&mut e, "<c-a-f>");
+    assert_eq!((e.mode, e.cmd.as_ref().map(|c| c.text.as_str())), (Mode::Command, Some("%s/")));
+    feed(&mut e, "<esc>");
+    assert_eq!(feed(&mut e, "<c-s-f>"), vec![Action::GrepProject]);
+    assert_eq!(feed(&mut e, "<c-w>"), vec![Action::CloseBuffer]);
+    assert_eq!(feed(&mut e, "<c-,>"), vec![Action::Settings]);
+    let src: String = (0..50).map(|_| "x\n").collect();
+    let mut e = classic(&src);
+    feed(&mut e, "<pgdn>");
+    assert_eq!(cur(&e).0, 19);
+    feed(&mut e, "<s-pgup>");
+    assert_eq!((cur(&e).0, e.doc().view.anchor.map(|p| p.line)), (0, Some(19)));
+}

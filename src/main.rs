@@ -18,13 +18,57 @@ mod theme;
 mod timing;
 mod ui;
 
+const USAGE: &str = "editor: a modal code editor. Read fast. Edit quick.
+
+Usage:
+  editor [PATH[:LINE]]... [+LINE] [--wait] [--new]
+  editor ctl COMMAND [ARGS]   drive the running editor (editor ctl --help)
+  editor mcp                  serve the running editor to AI agents, over stdio
+
+Examples:
+  editor .                    open this folder as the project
+  editor src/main.rs:42       open a file at line 42, in the project around it
+  editor --wait NOTES.md      return when its buffer closes, for $EDITOR and git
+  editor --new                open a new window, also when one runs for the project
+
+A path opens in the editor already running for its project, when there is one.
+
+Options:
+  --wait          return when the last file's buffer closes
+  --new           open a new window
+  -h, --help      print this help
+  -V, --version   print the version
+
+Docs: https://github.com/bjarneo/editor/blob/main/docs/cli.md
+";
+
+const MCP_USAGE: &str = "editor mcp: a Model Context Protocol server, over stdio, for the editor
+running in the current folder. An agent starts it. You do not run it by hand.
+
+  claude mcp add editor -- editor mcp
+
+Tools and setup for Codex and opencode: https://github.com/bjarneo/editor/blob/main/docs/agents.md
+";
+
 fn main() {
     timing::start();
     // `editor ctl …` and `editor mcp` talk to a running editor and never open a window.
     let argv: Vec<String> = std::env::args().collect();
     match argv.get(1).map(String::as_str) {
         Some("ctl") => std::process::exit(ipc::client::main(&argv[2..])),
+        Some("mcp") if argv[2..].iter().any(|a| a == "-h" || a == "--help") => {
+            print!("{MCP_USAGE}");
+            return;
+        }
         Some("mcp") => std::process::exit(ipc::mcp::main()),
+        Some("-h" | "--help") => {
+            print!("{USAGE}");
+            return;
+        }
+        Some("-V" | "--version") => {
+            println!("editor {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
         _ => {}
     }
     // `editor file` with an editor already open on that project opens the file there.

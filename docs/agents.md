@@ -68,7 +68,8 @@ The user reads code in `editor`. Use `editor ctl` from the project folder:
 | `editor_save` | `save [PATH] [--all]` | Writes a buffer, or every modified one |
 | `editor_command` | `command ':EX'` | Runs an Ex command, such as `:w` or `:%s/a/b/g` |
 
-Lines and columns are 1-based. Paths are absolute or relative to the project root. `editor ctl`
+[cli.md](cli.md) has every command, flag and exit status. Lines and columns are 1-based. Paths are
+absolute or relative to the project root. `editor ctl`
 prints JSON for data and plain text for `read` and `selection`; add `--json` for JSON
 everywhere. It exits 0 when done, 1 when the editor refuses, and 2 when no editor is running.
 
