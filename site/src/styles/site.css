@@ -870,10 +870,7 @@ table.data tbody tr:hover > * {
   .side {
     grid-column: 1 / -1;
   }
-  .side-mid {
-  align-self: center;
-}
-.side p {
+  .side p {
     max-width: 62ch;
   }
   .steps {
