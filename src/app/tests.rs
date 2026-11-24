@@ -1,0 +1,310 @@
+//! The app driven as a user drives it: keys and clicks through Rune's runtime, the real view
+//! and the real key routing. No workers run, so nothing touches the disk.
+
+use editor::buffer::{Buffer, Pos};
+use editor::editor::{Doc, Keymap, Mode};
+use rune::{Env, Key, KeyEvent, Mods, Runtime};
+
+use super::{App, DocMeta, Overlay, PickKind};
+use crate::config::Config;
+
+const SRC: &str = "fn main() {\n    let a = 1;\n    let b = 2;\n    println!(\"{}\", a + b);\n}\n";
+
+fn app(map: &str) -> App {
+    let mut cfg = Config::default();
+    cfg.keys.map = map.into();
+    let root = std::env::temp_dir();
+    let mut app = App::new(cfg, root.clone(), false, None);
+    let path = root.join("editor-test-main.rs");
+    let mut buf = Buffer::from_str(SRC);
+    buf.path = Some(path.clone());
+    app.meta.insert(path, DocMeta { lang: rune_highlights::Lang::from_name("rust"), ..Default::default() });
+    app.ed.docs.push(Doc::new(buf));
+    app.ed.active = 0;
+    app
+}
+
+fn run(app: App) -> Runtime<App> {
+    let mut rt = Runtime::new(app, crate::ui::view, (1200.0, 800.0), Env { system_dark: true, scale: 1.0 });
+    rt.on_key = Some(super::keys::on_key);
+    rt.use_clipboard(&rune::clipboard::memory());
+    rt.frame(0.0);
+    rt.frame(1.0 / 60.0);
+    rt
+}
+
+fn press(rt: &mut Runtime<App>, key: Key, mods: Mods) {
+    rt.key(KeyEvent { key, mods });
+    rt.frame(1.0 / 60.0);
+}
+
+fn typ(rt: &mut Runtime<App>, s: &str) {
+    for c in s.chars() {
+        let key = match c {
+            '\n' => Key::Enter,
+            '\x1b' => Key::Escape,
+            c => Key::Text(c.to_string()),
+        };
+        press(rt, key, Mods::default());
+    }
+}
+
+fn ctrl(rt: &mut Runtime<App>, c: char) {
+    press(rt, Key::Command(c), Mods { ctrl: true, cmd: true, ..Default::default() });
+}
+
+fn text(rt: &Runtime<App>) -> String {
+    rt.state.ed.buf().text()
+}
+
+#[test]
+fn the_view_measures_rows_and_columns() {
+    let rt = run(app("neovim"));
+    assert!(rt.state.ed.rows > 20, "rows come from the text area's layout: {}", rt.state.ed.rows);
+    assert!(rt.state.m.cw > 5.0 && rt.state.m.cw < 12.0, "the probe measures a char: {}", rt.state.m.cw);
+}
+
+#[test]
+fn dd_then_u_deletes_and_restores_a_line() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, "jdd");
+    assert!(!text(&rt).contains("let a"));
+    assert!(rt.state.ed.buf().is_dirty());
+    typ(&mut rt, "u");
+    assert_eq!(text(&rt), SRC);
+}
+
+#[test]
+fn insert_mode_types_and_escape_returns_to_normal() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, "Ohi\x1b");
+    assert_eq!(rt.state.ed.mode, Mode::Normal);
+    assert!(text(&rt).starts_with("hi\nfn main"));
+}
+
+#[test]
+fn yank_and_paste_go_through_the_clipboard_path() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, "jyyp");
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert_eq!(text(&rt).matches("let a = 1;").count(), 2, "{}", text(&rt));
+}
+
+#[test]
+fn space_opens_the_leader_menu_and_b_lists_buffers() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, " ");
+    assert!(matches!(rt.state.overlay, Overlay::Leader(None)));
+    typ(&mut rt, "b");
+    match &rt.state.overlay {
+        Overlay::Pick(p) => assert_eq!(p.kind, PickKind::Buffers),
+        _ => panic!("SPC b opens the buffer list"),
+    }
+    press(&mut rt, Key::Escape, Mods::default());
+    assert!(matches!(rt.state.overlay, Overlay::None));
+}
+
+#[test]
+fn colon_settings_opens_the_tab_and_w_writes_the_config() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, ":Settings\n");
+    assert!(rt.state.on_settings, "{:?}", rt.state.ed.msg);
+    // The first row is the theme; `l` moves it from dark to system.
+    typ(&mut rt, "l");
+    assert_eq!(rt.state.cfg.theme.mode, "system");
+    assert_ne!(rt.state.cfg, rt.state.disk_cfg);
+    typ(&mut rt, ":w\n");
+    assert_eq!(rt.state.cfg, rt.state.disk_cfg, "`:w` in Settings writes config.toml");
+    typ(&mut rt, ":q\n");
+    assert!(!rt.state.on_settings);
+}
+
+#[test]
+fn set_keymap_switches_to_classic_and_back() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, ":set keymap=classic\n");
+    assert_eq!(rt.state.ed.keymap, Keymap::Classic);
+    assert_eq!(rt.state.ed.mode, Mode::Insert);
+    typ(&mut rt, "x");
+    assert!(text(&rt).starts_with("xfn"), "classic types at once: {}", text(&rt));
+}
+
+#[test]
+fn classic_shortcuts_open_the_palette_and_undo() {
+    let mut rt = run(app("classic"));
+    typ(&mut rt, "ab");
+    assert!(text(&rt).starts_with("abfn"));
+    ctrl(&mut rt, 'z');
+    assert_eq!(text(&rt), SRC);
+    press(&mut rt, Key::Command('p'), Mods { ctrl: true, cmd: true, shift: true, ..Default::default() });
+    match &rt.state.overlay {
+        Overlay::Pick(p) => assert_eq!(p.kind, PickKind::Commands),
+        _ => panic!("Ctrl+Shift+P opens the command palette"),
+    }
+}
+
+#[test]
+fn a_click_places_the_cursor_and_a_drag_selects_in_visual_mode() {
+    let mut rt = run(app("neovim"));
+    let [x, y, _, _] = rt.state.m.text;
+    let (cw, rh, gutter) = (rt.state.m.cw, rt.state.m.row_h, rt.state.m.gutter);
+    let at = |line: f32, col: f32| (x + gutter + col * cw + cw / 2.0, y + line * rh + rh / 2.0);
+    let (px, py) = at(2.0, 8.0);
+    rt.pointer_down(px, py);
+    rt.pointer_up(px, py);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.ed.cursor(), Pos::new(2, 8));
+    let (qx, qy) = at(3.0, 4.0);
+    rt.pointer_down(px, py);
+    rt.pointer_move(qx, qy);
+    rt.frame(1.0 / 60.0);
+    rt.pointer_up(qx, qy);
+    rt.frame(1.0 / 60.0);
+    assert!(matches!(rt.state.ed.mode, Mode::Visual(_)), "{:?}", rt.state.ed.mode);
+    assert_eq!(rt.state.ed.doc().view.anchor, Some(Pos::new(2, 8)));
+}
+
+#[test]
+fn quitting_a_modified_buffer_is_refused() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, "x:q\n");
+    assert!(rt.state.ed.msg.as_ref().is_some_and(|m| m.error && m.text.starts_with("E37")));
+    assert_eq!(rt.state.ed.docs.len(), 1);
+}
+
+#[test]
+fn space_e_focuses_the_tree_and_space_e_again_hides_it() {
+    let mut app = app("neovim");
+    let files: Vec<String> = ["Cargo.toml", "src/main.rs", "src/lib.rs"].iter().map(|s| s.to_string()).collect();
+    app.tree.index = super::tree::TreeIndex::build(&files);
+    app.files = files;
+    let mut rt = run(app);
+    typ(&mut rt, " e");
+    assert!(rt.state.tree.show && rt.state.tree.focus);
+    typ(&mut rt, "l");
+    assert!(rt.state.tree.open.contains("src"), "l opens the folder");
+    typ(&mut rt, "j");
+    assert_eq!(rt.state.tree.sel.as_deref(), Some("src/lib.rs"));
+    typ(&mut rt, " e");
+    assert!(!rt.state.tree.show && !rt.state.tree.focus);
+}
+
+#[test]
+fn alt_click_adds_a_cursor_in_the_classic_keymap() {
+    let mut rt = run(app("classic"));
+    let [x, y, _, _] = rt.state.m.text;
+    let (cw, rh, gutter) = (rt.state.m.cw, rt.state.m.row_h, rt.state.m.gutter);
+    let (px, py) = (x + gutter + 4.0 * cw + cw / 4.0, y + 2.0 * rh + rh / 2.0);
+    rt.pointer_move(px, py);
+    rt.physical_input(rune::PhysicalInput::Modifiers(Mods { alt: true, ..Default::default() }));
+    rt.frame(1.0 / 60.0);
+    rt.pointer_down(px, py);
+    rt.pointer_up(px, py);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.ed.doc().extra.len(), 1, "{:?}", rt.state.ed.doc().extra);
+    assert_eq!(rt.state.ed.doc().extra[0].pos, Pos::new(2, 4));
+}
+
+fn rust_app(src: &str) -> App {
+    let mut app = app("neovim");
+    let doc = app.ed.doc_mut();
+    doc.buf = Buffer::from_str(src);
+    doc.buf.path = Some(std::env::temp_dir().join("editor-test-main.rs"));
+    app
+}
+
+#[test]
+fn tree_sitter_objects_and_motions_work_through_the_app() {
+    let src = "/// Adds.\nfn add(a: u32, b: u32) -> u32 {\n    a + b\n}\n\nfn main() {\n    let x = add(1, 2);\n}\n";
+    let mut rt = run(rust_app(src));
+    // From the doc comment, `]f` lands on `fn add`, a second `]f` on `fn main`, and `daf`
+    // deletes it.
+    typ(&mut rt, "]f");
+    assert_eq!(rt.state.ed.cursor().line, 1, "{:?}", rt.state.ed.msg);
+    typ(&mut rt, "]f");
+    assert_eq!(rt.state.ed.cursor().line, 5, "{:?}", rt.state.ed.msg);
+    typ(&mut rt, "daf");
+    assert!(!text(&rt).contains("fn main"), "{}", text(&rt));
+    assert!(text(&rt).contains("fn add"));
+    typ(&mut rt, "u");
+    // `dif` on the first function empties its body.
+    typ(&mut rt, "ggjjdif");
+    assert!(text(&rt).contains("fn add(a: u32, b: u32) -> u32 {\n}"), "{}", text(&rt));
+    // `cia` changes one parameter.
+    typ(&mut rt, "u");
+    typ(&mut rt, "gg0jf(lcianum: u64\x1b");
+    assert!(text(&rt).contains("fn add(num: u64, b: u32)"), "{}", text(&rt));
+}
+
+#[test]
+fn r_overtypes_and_the_status_line_says_replace() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, "R");
+    assert!(editor::vim::replacing(&rt.state.ed.vim));
+    typ(&mut rt, "xy\x1b");
+    assert!(text(&rt).starts_with("xy main"), "{}", text(&rt));
+    assert!(!editor::vim::replacing(&rt.state.ed.vim));
+}
+
+#[test]
+fn ctrl_d_adds_cursors_and_typing_edits_at_each() {
+    let src = "let a = 1;\nlet b = a;\nlet c = a;\n";
+    let mut app = app("classic");
+    app.ed.doc_mut().buf = Buffer::from_str(src);
+    let mut rt = run(app);
+    // Put the cursor on the `a` of line 2's `= a`, then select it and the next match.
+    press(&mut rt, Key::Down, Mods::default());
+    press(&mut rt, Key::End, Mods::default());
+    press(&mut rt, Key::Left, Mods::default());
+    press(&mut rt, Key::Left, Mods::default());
+    ctrl(&mut rt, 'd');
+    ctrl(&mut rt, 'd');
+    assert_eq!(rt.state.ed.doc().extra.len(), 1, "{:?}", rt.state.ed.doc().extra);
+    typ(&mut rt, "z");
+    let t = text(&rt);
+    assert!(t.contains("let b = z;") && t.contains("let c = z;"), "{t}");
+    ctrl(&mut rt, 'z');
+    assert_eq!(text(&rt), src);
+}
+
+#[test]
+fn right_click_opens_the_menu_and_copy_takes_the_selection() {
+    let mut app = app("neovim");
+    app.cfg.mouse.right_click = true;
+    let mut rt = run(app);
+    // Select line 2 in Visual line mode, then right-click on it.
+    typ(&mut rt, "jV");
+    let [x, y, _, _] = rt.state.m.text;
+    let (rh, gutter) = (rt.state.m.row_h, rt.state.m.gutter);
+    let (px, py) = (x + gutter + 20.0, y + rh * 1.5);
+    rt.secondary_down(px, py);
+    rt.secondary_up(px, py);
+    rt.frame(1.0 / 60.0);
+    assert!(matches!(rt.state.overlay, Overlay::Menu(_)), "Linux draws its own menu");
+    // The first item is Cut; Down moves to Copy.
+    press(&mut rt, Key::Down, Mods::default());
+    press(&mut rt, Key::Enter, Mods::default());
+    assert!(matches!(rt.state.overlay, Overlay::None));
+    assert_eq!(rt.state.ed.regs.unnamed.text, "    let a = 1;\n");
+    assert_eq!(rt.state.ed.mode, Mode::Normal);
+}
+
+#[test]
+fn a_middle_click_closes_a_clean_tab() {
+    let mut app = app("neovim");
+    let mut second = Buffer::from_str("two\n");
+    second.path = Some(std::env::temp_dir().join("editor-test-two.rs"));
+    app.ed.docs.push(Doc::new(second));
+    let mut rt = run(app);
+    // The second tab sits after the first.
+    let tabs: Vec<_> = rt.elements().into_iter().filter(|e| e.role == "tab").collect();
+    assert_eq!(tabs.len(), 2);
+    let r = tabs[1].rect;
+    let (cx, cy) = (r[0] + 20.0, r[1] + r[3] / 2.0);
+    rt.button_down(cx, cy, rune::PointerButton::Middle);
+    rt.button_up(cx, cy, rune::PointerButton::Middle);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.ed.docs.len(), 1);
+}

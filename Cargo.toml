@@ -1,0 +1,61 @@
+[package]
+name = "editor"
+version = "0.1.0"
+edition = "2024"
+description = "A lightweight modal editor for reading code fast and making quick edits, built on Rune."
+license = "MIT"
+
+[[bin]]
+name = "editor"
+path = "src/main.rs"
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "bf3f9d4a0459af5071cd352df816b610dda7f3a6" }
+rune-highlights = { git = "https://github.com/anomalyco/rune", rev = "bf3f9d4a0459af5071cd352df816b610dda7f3a6" }
+ropey = "1.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+dirs = "6"
+ignore = "0.4"
+globset = "0.4"
+notify = "8"
+similar = "2"
+unicode-width = "0.2"
+unicode-segmentation = "1"
+# Code structure for text objects and motions (src/syntax).
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-go = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-bash = "0.25"
+tree-sitter-json = "0.24"
+tree-sitter-lua = "0.5"
+
+[dev-dependencies]
+tempfile = "3"
+
+# A dependency's patches do not apply to the workspace that uses it, so an app that builds Rune
+# patches these crates itself, at the same Rune revision.
+[patch.crates-io]
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "bf3f9d4a0459af5071cd352df816b610dda7f3a6" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "bf3f9d4a0459af5071cd352df816b610dda7f3a6" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "bf3f9d4a0459af5071cd352df816b610dda7f3a6" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "bf3f9d4a0459af5071cd352df816b610dda7f3a6" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.release]
+codegen-units = 16
+incremental = true

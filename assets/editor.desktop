@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=editor
+GenericName=Text Editor
+Comment=Open code fast, read it, and make quick edits
+Exec=editor %F
+Icon=editor
+Terminal=false
+Categories=Development;TextEditor;Utility;
+MimeType=text/plain;text/x-rust;text/markdown;application/toml;text/x-python;text/x-csrc;text/x-c++src;application/json;
+StartupWMClass=editor
