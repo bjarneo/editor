@@ -6,6 +6,7 @@ use crate::buffer::Pos;
 use crate::editor::{Action, Editor, KeyCode, KeyInput, Mode};
 
 use super::ops::{self, Op, Range};
+use super::options::set;
 use super::regex::{Match, Regex};
 use super::{begin, commit_here, dispatch, get_mark, push_jump, set_cur, store};
 
@@ -106,11 +107,15 @@ fn run(ed: &mut Editor, line: &str, out: &mut Vec<Action>) -> Res {
         }
         "e" | "edit" => match path(ed, args) {
             Some(p) => out.push(Action::Open(p)),
+            None if !bang && ed.has_doc() && ed.buf().is_dirty() => {
+                return Err("E37: No write since last change (add ! to override)".into());
+            }
             None => out.push(Action::Reload),
         },
         "bn" | "bnext" => out.push(Action::NextBuffer),
         "bp" | "bprevious" | "bprev" | "bN" | "bNext" => out.push(Action::PrevBuffer),
         "bd" | "bdelete" | "bw" | "bwipeout" => out.push(Action::CloseBuffer),
+        "b" | "buffer" if !args.trim().is_empty() => out.push(Action::Open(buffer_arg(ed, args.trim())?)),
         "ls" | "buffers" | "files" | "b" | "buffer" => out.push(Action::PickBuffer),
         "Settings" | "settings" => out.push(Action::Settings),
         "Find" | "find" | "Files" => out.push(Action::FindFile),
@@ -176,7 +181,7 @@ fn run(ed: &mut Editor, line: &str, out: &mut Vec<Action>) -> Res {
         "pu" | "put" => {
             need_doc(ed)?;
             let reg = args.chars().next();
-            let Some(text) = ed.regs.get(reg).map(|r| r.text.clone()) else { return Err("E353: Nothing in register".into()) };
+            let Some(text) = ed.reg(reg).map(|r| r.text) else { return Err("E353: Nothing in register".into()) };
             let buf = &mut ed.doc_mut().buf;
             let first = ops::put_lines(buf, r.1, &text, bang);
             let col = buf.first_non_blank(first);
@@ -297,8 +302,12 @@ fn parse_range<'a>(ed: &mut Editor, s: &'a str) -> RangeParse<'a> {
     let (a, rest) = parse_addr(ed, s)?;
     let Some(a) = a else { return Ok((None, rest)) };
     let clamp = |x: isize| x.clamp(0, last as isize) as usize;
-    if let Some(r) = rest.strip_prefix([',', ';']) {
-        let (b, r2) = parse_addr(ed, r)?;
+    if let Some(sep) = rest.chars().next().filter(|c| matches!(c, ',' | ';')) {
+        // `;` moves the cursor to the first address before the second is read, as in Vim.
+        if sep == ';' {
+            ed.set_cursor(crate::buffer::Pos::new(clamp(a), 0));
+        }
+        let (b, r2) = parse_addr(ed, &rest[1..])?;
         let b = b.unwrap_or(ed.cursor().line as isize);
         let (x, y) = (clamp(a.min(b)), clamp(a.max(b)));
         return Ok((Some((x, y)), r2));
@@ -340,7 +349,7 @@ fn parse_addr<'a>(ed: &mut Editor, s: &'a str) -> Result<(Option<isize>, &'a str
             let end = body.find(d).unwrap_or(body.len());
             let pat = &body[..end];
             rest = if end < body.len() { &body[end + 1..] } else { "" };
-            let re = Regex::new(pat)?;
+            let re = Regex::with_case(pat, ed.case())?;
             let buf = ed.buf();
             let n = last + 1;
             let mut chars = Vec::new();
@@ -430,7 +439,7 @@ fn substitute(ed: &mut Editor, r: (usize, usize), args: &str) -> Res {
     } else if fl.contains('I') {
         Some(false)
     } else {
-        None
+        ed.case()
     };
     let re = Regex::with_case(&pat, icase)?;
     let (mut a, mut b) = r;
@@ -556,7 +565,7 @@ fn global(ed: &mut Editor, r: (usize, usize), args: &str, invert: bool, out: &mu
     if pat.is_empty() {
         return Err("E35: No previous regular expression".into());
     }
-    let re = Regex::new(&pat)?;
+    let re = Regex::with_case(&pat, ed.case())?;
     let buf = ed.buf();
     let mut chars = Vec::new();
     let lines: Vec<usize> = (r.0..=r.1.min(buf.last_line()))
@@ -667,81 +676,24 @@ fn del_marks(ed: &mut Editor, args: &str, bang: bool) -> Res {
     Ok(())
 }
 
-/// `:set`: applies the options the core knows and hands every option to the app.
-fn set(ed: &mut Editor, args: &str, out: &mut Vec<Action>) -> Res {
-    for arg in args.split_whitespace() {
-        if let Some(name) = arg.strip_suffix('?') {
-            let v = match canonical(name) {
-                "tabstop" | "shiftwidth" => ed.opts.tab_width.to_string(),
-                "expandtab" => ed.opts.spaces.to_string(),
-                "scrolloff" => ed.opts.scrolloff.to_string(),
-                "wrap" => ed.opts.wrap.to_string(),
-                other => return Err(format!("E518: Unknown option: {other}")),
-            };
-            ed.message(format!("  {name}={v}"));
-            continue;
-        }
-        let (name, value) = if let Some((k, v)) = arg.split_once('=') {
-            (k, v.to_string())
-        } else if let Some(k) = arg.strip_suffix('!') {
-            let on = match canonical(k) {
-                "expandtab" => ed.opts.spaces,
-                "wrap" => ed.opts.wrap,
-                _ => false,
-            };
-            (k, (!on).to_string())
-        } else if let Some(k) = arg.strip_prefix("no").filter(|k| is_bool(k)) {
-            (k, "false".to_string())
-        } else {
-            (arg, "true".to_string())
+/// `:b 2` and `:b name`: the path of buffer 2, or of the one buffer whose name holds `name`.
+fn buffer_arg(ed: &Editor, arg: &str) -> Result<PathBuf, String> {
+    let path_of = |i: usize| ed.docs[i].buf.path.clone().ok_or_else(|| format!("E86: Buffer {} has no file name", i + 1));
+    if let Ok(n) = arg.parse::<usize>() {
+        return match n.checked_sub(1).filter(|&i| i < ed.docs.len()) {
+            Some(i) => path_of(i),
+            None => Err(format!("E86: Buffer {n} does not exist")),
         };
-        let name = canonical(name);
-        match name {
-            "tabstop" | "shiftwidth" | "softtabstop" => {
-                let n: usize = value.parse().map_err(|_| format!("E521: Number required after =: {arg}"))?;
-                ed.opts.tab_width = n.clamp(1, 16);
-            }
-            "expandtab" => ed.opts.spaces = value == "true",
-            "scrolloff" => ed.opts.scrolloff = value.parse().map_err(|_| format!("E521: Number required after =: {arg}"))?,
-            "wrap" => ed.opts.wrap = value == "true",
-            _ => {}
-        }
-        out.push(Action::SetOption(name.to_string(), value));
     }
-    Ok(())
-}
-
-fn is_bool(name: &str) -> bool {
-    matches!(
-        canonical(name),
-        "expandtab"
-            | "wrap"
-            | "number"
-            | "relativenumber"
-            | "cursorline"
-            | "list"
-            | "hlsearch"
-            | "ignorecase"
-            | "smartcase"
-            | "mouse"
-            | "ligatures"
-    )
-}
-
-fn canonical(name: &str) -> &str {
-    match name {
-        "ts" => "tabstop",
-        "sw" => "shiftwidth",
-        "sts" => "softtabstop",
-        "et" => "expandtab",
-        "so" => "scrolloff",
-        "nu" => "number",
-        "rnu" => "relativenumber",
-        "cul" => "cursorline",
-        "hls" => "hlsearch",
-        "ic" => "ignorecase",
-        "scs" => "smartcase",
-        n => n,
+    let hits: Vec<usize> =
+        (0..ed.docs.len()).filter(|&i| ed.docs[i].buf.path.as_deref().is_some_and(|p| p.to_string_lossy().contains(arg))).collect();
+    match hits.as_slice() {
+        [i] => path_of(*i),
+        [] => Err(format!("E94: No matching buffer for {arg}")),
+        _ => match hits.iter().find(|&&i| ed.docs[i].buf.name() == arg) {
+            Some(&i) => path_of(i),
+            None => Err(format!("E93: More than one match for {arg}")),
+        },
     }
 }
 

@@ -46,7 +46,7 @@ pub(crate) fn play(ed: &mut Editor, reg: char, n: usize, out: &mut Vec<Action>) 
     };
     let keys = match ed.vim.macros.get(&reg) {
         Some(k) => k.clone(),
-        None => match ed.regs.get(Some(reg)) {
+        None => match ed.reg(Some(reg)) {
             Some(r) => r.text.chars().map(|c| if c == '\n' { KeyInput::plain(KeyCode::Enter) } else { KeyInput::ch(c) }).collect(),
             None => return,
         },

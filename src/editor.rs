@@ -161,6 +161,8 @@ pub enum Action {
     Palette,
     /// Put this text on the system clipboard.
     Copy(String),
+    /// Read the system clipboard and type it in Insert mode (`Ctrl r +`).
+    InsertClipboard,
     /// Read the system clipboard and paste it: after the cursor, or before it when `before`.
     Paste {
         before: bool,
@@ -225,6 +227,12 @@ pub struct Registers {
     pub named: std::collections::HashMap<char, Reg>,
     /// The last yank, `0`.
     pub yank: Reg,
+    /// Deletes and changes of a line or more, newest first: `1` to `9`.
+    pub numbered: std::collections::VecDeque<Reg>,
+    /// The last delete inside one line, `-`.
+    pub small: Reg,
+    /// The text typed in the last Insert session, `.`.
+    pub inserted: Reg,
 }
 
 impl Registers {
@@ -232,6 +240,9 @@ impl Registers {
         match name {
             None | Some('"') | Some('+') | Some('*') => Some(&self.unnamed),
             Some('0') => Some(&self.yank),
+            Some(c @ '1'..='9') => self.numbered.get(c as usize - '1' as usize),
+            Some('-') => Some(&self.small),
+            Some('.') => Some(&self.inserted),
             Some(c) => self.named.get(&c.to_ascii_lowercase()),
         }
     }
@@ -247,8 +258,25 @@ impl Registers {
                 *slot = reg.clone();
             }
         }
+        if let Some(c @ '1'..='9') = name {
+            let i = c as usize - '1' as usize;
+            while self.numbered.len() <= i {
+                self.numbered.push_back(Reg::default());
+            }
+            self.numbered[i] = reg.clone();
+        } else if name == Some('-') {
+            self.small = reg.clone();
+        }
         if yank {
             self.yank = reg.clone();
+        } else if name.is_none() || name == Some('"') {
+            // As in Vim: a delete of a line or more shifts `1`-`9`, a smaller one goes to `-`.
+            if reg.linewise || reg.text.contains('\n') {
+                self.numbered.push_front(reg.clone());
+                self.numbered.truncate(9);
+            } else {
+                self.small = reg.clone();
+            }
         }
         self.unnamed = reg;
     }
@@ -277,6 +305,9 @@ pub struct Opts {
     pub spaces: bool,
     pub scrolloff: usize,
     pub wrap: bool,
+    /// Search ignores case (`:set ignorecase`), unless `smartcase` sees an uppercase letter.
+    pub ignorecase: bool,
+    pub smartcase: bool,
     pub auto_close: bool,
     pub save: SaveOpts,
 }
@@ -288,6 +319,8 @@ impl Default for Opts {
             spaces: true,
             scrolloff: 8,
             wrap: false,
+            ignorecase: true,
+            smartcase: true,
             auto_close: true,
             save: SaveOpts { trim_trailing_whitespace: true, final_newline: true },
         }
@@ -456,6 +489,29 @@ impl Editor {
         if line != doc.view.cursor.line {
             let want = doc.view.want_col;
             doc.view.cursor = doc.buf.clamp(Pos::new(line, want), past_end);
+        }
+    }
+
+    /// Register `name`'s contents, or `None` when it is empty. `/` is the last search and `:`
+    /// the last Ex command.
+    pub fn reg(&self, name: Option<char>) -> Option<Reg> {
+        let text = |t: &str| (!t.is_empty()).then(|| Reg { text: t.to_string(), linewise: false });
+        match name {
+            Some('/') => text(&self.search.pattern),
+            Some(':') => text(self.vim.last_ex.as_deref().unwrap_or("")),
+            _ => self.regs.get(name).filter(|r| !r.text.is_empty()).cloned(),
+        }
+    }
+
+    /// How a search treats case: `Some(true)` ignores it, `Some(false)` matches it, `None` lets
+    /// smartcase decide from the pattern.
+    pub fn case(&self) -> Option<bool> {
+        if !self.opts.ignorecase {
+            Some(false)
+        } else if !self.opts.smartcase {
+            Some(true)
+        } else {
+            None
         }
     }
 

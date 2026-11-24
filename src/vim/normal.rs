@@ -629,7 +629,7 @@ fn put(ed: &mut Editor, reg: Option<char>, before: bool, n: usize, out: &mut Vec
         out.push(Action::Paste { before, count: n });
         return;
     }
-    match ed.regs.get(reg).filter(|r| !r.text.is_empty()).cloned() {
+    match ed.reg(reg) {
         Some(r) => super::put_reg(ed, &r.text, r.linewise, before, n),
         None => {
             let name = reg.unwrap_or('"');

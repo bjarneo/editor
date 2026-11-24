@@ -29,19 +29,41 @@ pub(crate) fn key(ed: &mut Editor, k: KeyInput, out: &mut Vec<Action>) {
         ed.mode = Mode::Normal;
         return;
     }
+    // `Ctrl r +` and `Ctrl r *` type the system clipboard, which only the app can read.
+    if ed.vim.pending.first().is_some_and(|p| ctrl_ch(p) == Some('r')) && matches!(ch(&k), Some('+' | '*')) {
+        ed.vim.pending.clear();
+        out.push(Action::InsertClipboard);
+        return;
+    }
     if let Some(s) = &mut ed.vim.insert {
         s.keys.push(k);
     }
     act(ed, k);
 }
 
+/// The text a run of Insert-mode keys typed, for the `.` register.
+fn typed(keys: &[KeyInput]) -> String {
+    let mut out = String::new();
+    for k in keys {
+        match k.code {
+            KeyCode::Char(c) if !k.ctrl && !k.cmd => out.push(c),
+            KeyCode::Enter => out.push('\n'),
+            KeyCode::Tab => out.push('\t'),
+            KeyCode::Backspace => {
+                out.pop();
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// One Insert-mode key, without recording it.
 pub(crate) fn act(ed: &mut Editor, k: KeyInput) {
     if ed.vim.pending.first().is_some_and(|p| ctrl_ch(p) == Some('r')) {
         ed.vim.pending.clear();
-        if let Some(r) = ch(&k).and_then(|c| ed.regs.get(Some(c))) {
-            let text = r.text.clone();
-            insert_text(ed, &text);
+        if let Some(r) = ch(&k).and_then(|c| ed.reg(Some(c))) {
+            insert_text(ed, &r.text);
         }
         return;
     }
@@ -136,6 +158,10 @@ pub(crate) fn finish(ed: &mut Editor, out: &mut Vec<Action>) {
         }
         if let Some(cmd) = &s.dot {
             ed.vim.dot = Some(Dot { cmd: cmd.clone(), keys: s.keys.clone() });
+        }
+        let text = typed(&s.keys);
+        if !text.is_empty() {
+            ed.regs.inserted = crate::editor::Reg { text, linewise: false };
         }
     }
     ed.vim.replace = None;

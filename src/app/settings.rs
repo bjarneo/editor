@@ -326,6 +326,12 @@ impl App {
             KeyCode::Char(':') if vim => editor::vim::open_cmdline(&mut self.ed, ':', ""),
             KeyCode::Char('s') if k.cmd && !vim => self.write_config(),
             KeyCode::Char('w') if k.cmd && !vim => self.close_settings(),
+            _ if !vim && super::keys::classic_window_key(&k).is_some() => {
+                let actions = super::keys::classic_window_key(&k).into_iter().collect();
+                self.run_actions(actions, tx);
+            }
+            // The leader opens its menu here too, so Space never changes an option.
+            KeyCode::Char(c) if c == self.ed.vim.leader && vim => self.run_actions(vec![Action::LeaderMenu], tx),
             KeyCode::Char('j') | KeyCode::Down if !k.ctrl => set_row(self, cur + 1),
             KeyCode::Char('k') | KeyCode::Up if !k.ctrl => set_row(self, cur.saturating_sub(1)),
             KeyCode::Tab if k.shift => set_section(self, sec_i + SECTIONS.len() - 1),
@@ -346,7 +352,6 @@ impl App {
                 }
                 self.settings_changed(key);
             }
-            KeyCode::Char(c) if c == self.ed.vim.leader && vim => self.run_actions(vec![Action::LeaderMenu], tx),
             KeyCode::Esc => {}
             _ => {
                 let _ = row_key;

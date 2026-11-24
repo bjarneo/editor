@@ -6,12 +6,13 @@ use crate::editor::{Editor, Search};
 use super::regex::Regex;
 
 /// The char ranges of `pattern`'s matches on lines `first_line..=last_line`, for highlighting.
-/// Empty matches are left out. A pattern that doesn't compile matches nothing.
-pub fn search_matches(buf: &Buffer, pattern: &str, first_line: usize, last_line: usize) -> Vec<(usize, usize)> {
+/// Empty matches are left out. A pattern that doesn't compile matches nothing. `case` is
+/// `Editor::case`.
+pub fn search_matches(buf: &Buffer, pattern: &str, case: Option<bool>, first_line: usize, last_line: usize) -> Vec<(usize, usize)> {
     if pattern.is_empty() {
         return Vec::new();
     }
-    let Ok(re) = Regex::new(pattern) else { return Vec::new() };
+    let Ok(re) = Regex::with_case(pattern, case) else { return Vec::new() };
     let mut out = Vec::new();
     let mut chars = Vec::new();
     for l in first_line..=last_line.min(buf.last_line()) {
@@ -72,7 +73,7 @@ pub(crate) fn step_match(ed: &mut Editor, reverse: bool, count: usize) -> Option
         ed.error("E35: No previous regular expression");
         return None;
     }
-    let re = match Regex::new(&pat) {
+    let re = match Regex::with_case(&pat, ed.case()) {
         Ok(re) => re,
         Err(e) => {
             ed.error(e);
@@ -152,7 +153,7 @@ pub(crate) fn match_here(ed: &mut Editor, forward: bool) -> Option<(usize, usize
         ed.error("E35: No previous regular expression");
         return None;
     }
-    let re = match Regex::new(&pat) {
+    let re = match Regex::with_case(&pat, ed.case()) {
         Ok(re) => re,
         Err(e) => {
             ed.error(e);

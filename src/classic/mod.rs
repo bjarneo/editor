@@ -11,6 +11,15 @@ const MAC: bool = cfg!(target_os = "macos");
 
 /// Handles one key in the classic keymap and returns what the app must do.
 pub fn handle_key(ed: &mut Editor, key: KeyInput) -> Vec<Action> {
+    // The `:s///c` prompt takes its keys first, as in the Neovim keymap.
+    if ed.vim.confirm.is_some() && ed.has_doc() {
+        let mut out = Vec::new();
+        vim::dispatch(ed, key, &mut out);
+        if ed.vim.confirm.is_none() {
+            ed.mode = Mode::Insert;
+        }
+        return out;
+    }
     if ed.mode == Mode::Command {
         let out = vim::cmdline_key(ed, key);
         if ed.mode != Mode::Command {
@@ -55,6 +64,7 @@ fn run(ed: &mut Editor, k: KeyInput, out: &mut Vec<Action>) {
             Some('b') => Some(Action::ToggleTree),
             Some('w') => Some(Action::CloseBuffer),
             Some(',') => Some(Action::Settings),
+            Some('q') => Some(Action::QuitAll { force: false }),
             _ => None,
         };
         if let Some(a) = act {

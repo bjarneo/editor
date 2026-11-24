@@ -392,8 +392,12 @@ impl App {
                 (WriteKind::Config, Ok(())) => {
                     let path = config::config_path();
                     self.ed.message(format!("\"{}\" written", tilde(&path)));
+                    self.saved_one(tx);
                 }
-                (_, Err(e)) => self.ed.error(e),
+                (_, Err(e)) => {
+                    self.ed.error(e);
+                    self.quit_after_saves = None;
+                }
             },
             Event::Files(files, index) => {
                 self.tree.index = index;
@@ -530,40 +534,7 @@ impl App {
                 self.quit_after_saves = None;
             }
         }
-        if let Some(n) = self.quit_after_saves.as_mut() {
-            *n = n.saturating_sub(1);
-            if *n == 0 {
-                self.quit(tx);
-            }
-        }
-    }
-
-    fn disk_text(&mut self, path: PathBuf, text: String, mtime: Option<std::time::SystemTime>) {
-        let Some(i) = self.doc_index(&path) else { return };
-        let dirty = self.ed.docs[i].buf.is_dirty();
-        let same = self.ed.docs[i].buf.text().replace("\r\n", "\n") == text.replace("\r\n", "\n");
-        if same {
-            self.ed.docs[i].buf.disk_mtime = mtime;
-            return;
-        }
-        let name = self.rel(&path);
-        if dirty {
-            if let Some(m) = self.meta.get_mut(&path) {
-                m.conflict = true;
-            }
-            self.ed.docs[i].buf.disk_mtime = mtime;
-            self.ed.error(format!("W12: \"{name}\" changed on disk and here. :e! loads the disk copy, :w keeps yours"));
-            return;
-        }
-        let cursor = self.ed.docs[i].view.cursor;
-        let old = self.ed.docs[i].buf.text();
-        self.ed.docs[i].buf.replace_from_disk(&text, cursor, mtime);
-        let doc = &mut self.ed.docs[i];
-        doc.view.cursor = doc.buf.clamp(cursor, false);
-        let new = doc.buf.text();
-        let (added, removed) = self.record_outside(&path, &old, &new);
-        let lead = if self.is_vim() { "SPC a l" } else { "the palette" };
-        self.ed.message(format!("\"{name}\" changed outside: +{added} -{removed} lines. {lead} lists changes, u undoes the reload"));
+        self.saved_one(tx);
     }
 
     /// Files changed on disk. Open ones are read back by the file worker (a reload compares
@@ -627,6 +598,7 @@ impl App {
     /// Applies config.toml's options, then the active file's `.editorconfig` on top.
     pub fn apply_doc_opts(&mut self) {
         let mut opts = self.cfg.opts();
+        (opts.ignorecase, opts.smartcase) = (self.ed.opts.ignorecase, self.ed.opts.smartcase);
         if self.ed.has_doc()
             && let Some(path) = &self.ed.doc().buf.path
             && let Some(m) = self.meta.get(path)

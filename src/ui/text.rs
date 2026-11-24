@@ -159,7 +159,7 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
     let search = if app.ed.search.pattern.is_empty() || !app.search_shown() {
         Vec::new()
     } else {
-        editor::vim::search_matches(buf, &app.ed.search.pattern, top, top + count)
+        editor::vim::search_matches(buf, &app.ed.search.pattern, app.ed.case(), top, top + count)
     };
     let signs = meta.map(|m| m.signs.as_slice()).unwrap_or(&[]);
     let diags = meta.map(|m| m.diags.as_slice()).unwrap_or(&[]);

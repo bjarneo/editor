@@ -290,6 +290,41 @@ impl App {
         true
     }
 
+    /// A file changed on disk: reload a clean buffer and mark the changed lines, or warn when
+    /// the buffer has edits of its own.
+    pub(super) fn disk_text(&mut self, path: PathBuf, text: String, mtime: Option<std::time::SystemTime>) {
+        let Some(i) = self.doc_index(&path) else { return };
+        let dirty = self.ed.docs[i].buf.is_dirty();
+        let same = self.ed.docs[i].buf.text().replace("\r\n", "\n") == text.replace("\r\n", "\n");
+        if same {
+            self.ed.docs[i].buf.disk_mtime = mtime;
+            return;
+        }
+        // The editor's own save, read back after more typing: the disk holds what the buffer
+        // saved last, so nothing changed from outside.
+        if dirty && mtime.is_some() && mtime == self.ed.docs[i].buf.disk_mtime {
+            return;
+        }
+        let name = self.rel(&path);
+        if dirty {
+            if let Some(m) = self.meta.get_mut(&path) {
+                m.conflict = true;
+            }
+            self.ed.docs[i].buf.disk_mtime = mtime;
+            self.ed.error(format!("W12: \"{name}\" changed on disk and here. :e! loads the disk copy, :w keeps yours"));
+            return;
+        }
+        let cursor = self.ed.docs[i].view.cursor;
+        let old = self.ed.docs[i].buf.text();
+        self.ed.docs[i].buf.replace_from_disk(&text, cursor, mtime);
+        let doc = &mut self.ed.docs[i];
+        doc.view.cursor = doc.buf.clamp(cursor, false);
+        let new = doc.buf.text();
+        let (added, removed) = self.record_outside(&path, &old, &new);
+        let lead = if self.is_vim() { "SPC a l" } else { "the palette" };
+        self.ed.message(format!("\"{name}\" changed outside: +{added} -{removed} lines. {lead} lists changes, u undoes the reload"));
+    }
+
     /// Applies proposal `i` as one undo step. When the buffer changed since the diff, the
     /// diff is made again and shown, to review before accepting.
     fn accept_proposal(&mut self, i: usize) {

@@ -378,7 +378,7 @@ fn replace_chars(ed: &mut Editor, r: Range, c: char) {
 /// the selection goes now and the text lands where it was.
 fn put(ed: &mut Editor, reg: Option<char>, n: usize, out: &mut Vec<Action>) {
     let clip = matches!(reg, None | Some('"' | '+' | '*')) && ed.vim.replaying == 0;
-    let known = if clip { None } else { ed.regs.get(reg).filter(|r| !r.text.is_empty()).cloned() };
+    let known = if clip { None } else { ed.reg(reg) };
     if !clip && known.is_none() {
         exit(ed);
         return;
@@ -494,7 +494,9 @@ pub(crate) fn finish_block_insert(ed: &mut Editor) {
     let Some(b) = ed.vim.block.take() else { return };
     let cur = ed.cursor();
     let len = ed.buf().line_len(b.first);
-    if cur.line != b.first || len <= b.line_len || ed.buf().last_line() < b.last {
+    // The rope's own line count: a block's last line can be the empty line after the file's
+    // final line end, which `last_line` leaves out.
+    if cur.line != b.first || len <= b.line_len || ed.buf().rope().len_lines().saturating_sub(1) < b.last {
         return;
     }
     let n = len - b.line_len;

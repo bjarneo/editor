@@ -146,9 +146,11 @@ impl App {
                 self.overlay = super::Overlay::Leader(None);
             }
             KeyCode::Char(':') => return false,
+            // Other plain keys stay here, so they never edit the file. Ctrl and Cmd shortcuts
+            // pass on: `Ctrl P` finds a file while the tree has focus.
             _ => {
                 let _ = tx;
-                return k.cmd || k.ctrl;
+                return !(k.cmd || k.ctrl);
             }
         }
         true

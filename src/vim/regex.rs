@@ -347,7 +347,9 @@ fn first_chars(alts: &[Vec<Node>]) -> Option<Vec<char>> {
 }
 
 impl Regex {
-    /// Compiles `pattern` with smartcase, `\c` and `\C`.
+    /// Compiles `pattern` with smartcase, `\c` and `\C`. Searches use `with_case` and the
+    /// editor's `ignorecase` and `smartcase`.
+    #[cfg(test)]
     pub fn new(pattern: &str) -> Result<Regex, String> {
         Regex::with_case(pattern, None)
     }

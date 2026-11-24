@@ -277,6 +277,8 @@ impl Config {
             spaces: self.indent.spaces,
             scrolloff: self.editor.scrolloff as usize,
             wrap: self.editor.wrap,
+            ignorecase: true,
+            smartcase: true,
             auto_close: self.keys.auto_close,
             save: editor::buffer::SaveOpts {
                 trim_trailing_whitespace: self.format.trim_whitespace,

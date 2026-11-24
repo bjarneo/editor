@@ -269,15 +269,19 @@ selection again. The marks `'<` and `'>` hold its start and end.
 | `a` to `z` | Named registers. `"ayy` yanks the line into `a`, and `"ap` puts it |
 | `A` to `Z` | Append to `a` to `z`: `"Ayy` adds the line to `a` |
 | `0` | The last yank. A delete does not change it |
+| `1` to `9` | Deletes and changes of a line or more, newest in `1`. A new one moves the others down |
+| `-` | The last delete inside one line, such as `x` or `dw` |
+| `.` | The text typed in the last Insert session |
+| `:` | The last Ex command. `@:` runs it again |
+| `/` | The last search pattern |
 | `_` | The black hole. `"_dd` deletes and keeps every register as it was |
 
 A register name comes before the command: `"ayiw`, `"bp`, `"_x`. In Insert mode, `Ctrl r a`
 inserts register `a`. Ex commands take a register name after the command: `:d a`, `:y b`,
 `:put c`.
 
-`Ctrl r "`, `Ctrl r +` and `Ctrl r *` insert the last yank or delete made in the editor.
-They do not read text that another app put on the clipboard. To paste that text, use `p` or
-`P`.
+`Ctrl r +` and `Ctrl r *` insert the system clipboard, also text that another app copied.
+`Ctrl r "` inserts the last yank or delete made in the editor.
 
 ### Marks
 
@@ -382,12 +386,15 @@ A command takes a range when the table shows one. The next section explains rang
 | `:x`, `:xit`, `:exi`, `:exit` | Write the buffer if it changed, then close it |
 | `:qa`, `:qall`, `:quita`, `:quitall` | Quit. A modified buffer or an unwritten Settings change stops it |
 | `:qa!` | Quit and drop every change |
+| `:wqa`, `:wqall`, `:xa`, `:xall` | Write every modified buffer and Settings, then quit when the writes are done |
 | `:e path`, `:edit path` | Open a file. A relative path starts at the project root. `~/` is your home folder |
-| `:e`, `:e!` | Read the buffer again from disk |
+| `:e` | Read the buffer again from disk. With unsaved changes, it stops with `E37` |
+| `:e!` | Read the buffer again from disk and drop its changes |
 | `:bn`, `:bnext` | Next tab |
 | `:bp`, `:bprev`, `:bprevious`, `:bN`, `:bNext` | Previous tab |
 | `:bd`, `:bdelete`, `:bw`, `:bwipeout` | Close the buffer. A modified buffer stays open |
 | `:ls`, `:buffers`, `:files`, `:b`, `:buffer` | Pick an open buffer |
+| `:b N`, `:b name` | Go to buffer `N`, counted from 1, or to the one buffer whose path holds `name` |
 | `:Find`, `:find`, `:Files` | Find a file |
 | `:Grep`, `:grep`, `:rg` | Search the project |
 | `:Explore`, `:Ex`, `:Tree` | Show or hide the file tree |
@@ -416,15 +423,13 @@ A command takes a range when the table shows one. The next section explains rang
 | `:!cmd` | Run a shell command in the project folder and show its output |
 | `:{range}!cmd` | Send the lines through a shell command and put its output in their place |
 
-If the buffer has unsaved changes, do not run `:e` without a file name unless you want to
-lose them. `:e` reads the file from disk and drops the changes, as `:e!` does.
-
 `:g` and `:v` take any Ex command: `:g/TODO/d`, `:v/\S/d`, `:g/^/m0`, `:g/fn /normal A;`.
 With no command, `:g` counts the lines that match.
 
 ### Ranges
 
-A range is one address, or two addresses with `,` between them. `;` works as `,` does.
+A range is one address, or two addresses with `,` or `;` between them. With `;`, the cursor
+goes to the first address before the second is read: `:10;+2d` deletes lines 10 to 12.
 
 | Address | Is |
 | --- | --- |
@@ -473,8 +478,9 @@ All the changes of one `:s` undo as one step.
 
 ### Options
 
-`:set name` turns an option on, `:set noname` turns it off and `:set name=value` gives it a
-value. One `:set` takes several options: `:set ts=2 noet wrap`. A change applies at once and
+`:set name` turns an option on, `:set noname` turns it off, `:set name!` flips it and
+`:set name=value` gives it a value. `:set name?` shows the value. One `:set` takes several
+options: `:set ts=2 noet wrap`. A change applies at once and
 shows in Settings. To keep it in `config.toml`, open Settings and run `:w`.
 
 | Option | Short | Values |
@@ -487,15 +493,19 @@ shows in Settings. To keep it in `config.toml`, open Settings and run `:w`.
 | `cursorline` | `cul` | On, off |
 | `list` | | On, off. On shows the indent spaces as dots |
 | `colorcolumn` | `cc`, `ruler` | A column for the guide line, `0` for none |
-| `wrap` | | On, off. `:set wrap!` toggles it |
-| `expandtab` | `et` | On, off. On makes `Tab` type spaces. `:set et!` toggles it |
+| `wrap` | | On, off |
+| `expandtab` | `et` | On, off. On makes `Tab` type spaces |
 | `tabstop` | `ts` | The indent width, a number |
-| `shiftwidth` | `sw` | The same as `tabstop` |
+| `shiftwidth`, `softtabstop` | `sw`, `sts` | The same as `tabstop` |
+| `ligatures` | | On, off. Font ligatures such as `->` and `!=` |
+| `hlsearch` | `hls` | On, off. On highlights every match of the last search |
+| `ignorecase` | `ic` | On, off. On makes search ignore case. On by default |
+| `smartcase` | `scs` | On, off. With `ignorecase`, an uppercase letter in the pattern makes case count. On by default |
 | `scrolloff` | `so` | Lines kept above and below the cursor |
 | `mouse` | | `:set mouse` and `:set mouse=a` turn the mouse on, `:set nomouse` and `:set mouse=` turn it off |
 
-`:set ts?`, `:set sw?`, `:set et?`, `:set so?` and `:set wrap?` show the value. An
-`.editorconfig` file sets the indent of its files, and it takes precedence over `tabstop` and
+`\c` in a pattern ignores case and `\C` makes it count, whatever the options say.
+`hlsearch`, `ignorecase` and `smartcase` last until the editor closes. An `.editorconfig` file sets the indent of its files, and it takes precedence over `tabstop` and
 `expandtab`.
 
 ## Classic keymap
@@ -526,6 +536,7 @@ classic keymap.
 | `Ctrl .` | List the code actions |
 | `Ctrl B` | Show or hide the file tree |
 | `Ctrl Tab` `Ctrl ⇧ Tab` | Next, previous tab |
+| `Ctrl Q` | Quit. A modified buffer stops it |
 | `Ctrl W` | Close the tab. A modified tab stays open |
 | `Ctrl ,` | Settings |
 | `Esc` | Drop the selection |
@@ -556,8 +567,8 @@ syntax that [Search](#search) shows.
 
 `Ctrl Alt F` opens the command line with `%s/`. Type `old/new/g` and then `Enter` to replace
 every match in the file. The command line keys are the ones that
-[Command line](#command-line) shows. `Esc` closes the line. The `c` flag of `:s` needs the
-Neovim keymap.
+[Command line](#command-line) shows. `Esc` closes the line. With the `c` flag,
+`%s/old/new/gc` asks at each match, with the keys that [Substitute](#substitute) lists.
 
 ### Multiple cursors
 
@@ -595,8 +606,10 @@ the focus.
 | `Esc` `q` | Give the focus back to the text |
 | `:` | Open the command line. Neovim keymap |
 | `SPC` | Open the leader menu. Neovim keymap |
+| `Ctrl` shortcuts | Work as in the text: `Ctrl P` finds a file, `Ctrl S` writes |
 
-A letter after a file name is its git status. A dot after a folder name shows that a file in
+Other keys do nothing while the tree has the focus, so a key meant for the tree never edits
+the file. A letter after a file name is its git status. A dot after a folder name shows that a file in
 it changed.
 
 ### Pickers
@@ -647,11 +660,14 @@ too. The picker `Ctrl` keys use `Ctrl` on macOS too.
 | --- | --- |
 | `j` `↓`, `k` `↑` | Go to the next, previous option |
 | `h` `←`, `l` `→` | Change the option back, forward |
-| `Enter` `Space` | Change the option forward |
+| `Enter` | Change the option forward |
+| `Space` | Change the option forward. Classic keymap |
+| `SPC` | Open the leader menu. Neovim keymap |
 | `Tab` `J`, `⇧ Tab` `K` | Go to the next, previous section |
 | `1` to `5` | Go to a section: `appearance`, `font`, `editor`, `formatting`, `keys & mouse` |
-| `:w`, `:q` | Write `config.toml`, close Settings. Neovim keymap |
+| `:w`, `:q`, `:wq` | Write `config.toml`, close Settings, do both. Neovim keymap |
 | `Ctrl S`, `Ctrl W` | Write `config.toml`, close Settings. Classic keymap |
+| `Ctrl P`, `Ctrl ⇧ P`, `Ctrl ⇧ F`, `Ctrl B`, `Ctrl Tab`, `Ctrl Q` | Work as in the text. Classic keymap |
 | `\` | Open the leader menu, with the backslash leader |
 
 ### Setup

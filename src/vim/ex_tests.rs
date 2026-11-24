@@ -170,9 +170,9 @@ fn cmdline_editing_and_history() {
 #[test]
 fn search_matches_for_highlighting() {
     let b = Buffer::from_str("Foo foo\nbar foo");
-    assert_eq!(search_matches(&b, "foo", 0, 1), vec![(0, 3), (4, 7), (12, 15)]);
-    assert_eq!(search_matches(&b, "Foo", 0, 1), vec![(0, 3)], "an uppercase letter makes case count");
-    assert!(search_matches(&b, "", 0, 1).is_empty());
+    assert_eq!(search_matches(&b, "foo", None, 0, 1), vec![(0, 3), (4, 7), (12, 15)]);
+    assert_eq!(search_matches(&b, "Foo", None, 0, 1), vec![(0, 3)], "an uppercase letter makes case count");
+    assert!(search_matches(&b, "", None, 0, 1).is_empty());
 }
 
 #[test]

@@ -12,6 +12,7 @@ mod insert;
 mod motion;
 mod normal;
 mod ops;
+mod options;
 mod regex;
 mod replace;
 mod search;
@@ -20,6 +21,8 @@ mod tags;
 mod textobj;
 mod visual;
 
+#[cfg(test)]
+mod audit_tests;
 #[cfg(test)]
 mod ex_tests;
 #[cfg(test)]
@@ -226,6 +229,14 @@ pub fn handle_key(ed: &mut Editor, key: KeyInput) -> Vec<Action> {
     }
     dispatch(ed, key, &mut out);
     out
+}
+
+/// Types `text` at the cursor in Insert mode, as one run of typing: `Ctrl r +` after the app
+/// reads the clipboard.
+pub fn type_text(ed: &mut Editor, text: &str) {
+    if ed.has_doc() && ed.mode == Mode::Insert {
+        insert::insert_text(ed, text);
+    }
 }
 
 /// One key to the mode it belongs to, without recording it into a macro.

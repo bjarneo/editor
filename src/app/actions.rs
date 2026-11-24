@@ -17,10 +17,15 @@ impl App {
                 close_after_save = true;
             }
         }
+        // `:wqa` and `:xa`: quit once the writes are done, not before.
+        let quit_after_all =
+            actions.iter().any(|a| matches!(a, Action::SaveAll)) && actions.iter().any(|a| matches!(a, Action::QuitAll { force: false }));
         for a in actions {
             match a {
                 Action::Save(path) => self.save_active(path, if close_after_save { AfterSave::Close } else { AfterSave::Nothing }),
                 Action::Quit { .. } if close_after_save => {}
+                Action::SaveAll if quit_after_all => self.save_all_and_quit(tx),
+                Action::QuitAll { force: false } if quit_after_all => {}
                 Action::SaveAll => {
                     self.save_all(false);
                 }
@@ -60,6 +65,10 @@ impl App {
                 Action::LeaderMenu => self.overlay = Overlay::Leader(None),
                 Action::Copy(text) => tx.copy(text),
                 Action::Paste { before, count } => self.paste(before, count, tx),
+                Action::InsertClipboard => tx.read_clipboard(|s: &mut App, content, _tx| {
+                    editor::vim::type_text(&mut s.ed, &content.text().replace("\r\n", "\n"));
+                    s.edited();
+                }),
                 Action::SetOption(k, v) => self.set_option(&k, &v),
                 Action::Message(m) => self.ed.message(m),
                 Action::Error(e) => self.ed.error(e),
@@ -71,6 +80,10 @@ impl App {
     pub fn save_active(&mut self, path: Option<PathBuf>, then: AfterSave) {
         if self.on_settings {
             self.write_config();
+            // `:wq` and `:x` in Settings write config.toml and close the tab.
+            if matches!(then, AfterSave::Close) {
+                self.close_settings();
+            }
             return;
         }
         if !self.ed.has_doc() {
@@ -121,6 +134,35 @@ impl App {
             self.quit_after_saves = Some(n);
         }
         n
+    }
+
+    /// `:wqa`: writes every modified buffer and the Settings tab, then quits once the writes are
+    /// done.
+    fn save_all_and_quit(&mut self, tx: &mut Tx) {
+        if let Some(i) = self.ed.docs.iter().position(|d| d.buf.is_dirty() && d.buf.path.is_none()) {
+            self.ed.error(format!("E141: No file name for buffer {}", i + 1));
+            return;
+        }
+        let config = self.settings.is_some() && self.cfg != self.disk_cfg && self.svc.is_some();
+        if config {
+            self.write_config();
+        }
+        let n = self.save_all(false) + usize::from(config);
+        if n == 0 {
+            self.quit_all(false, tx);
+        } else {
+            self.quit_after_saves = Some(n);
+        }
+    }
+
+    /// One of the writes `:wqa` waits for is done: quit after the last one.
+    pub fn saved_one(&mut self, tx: &mut Tx) {
+        if let Some(n) = self.quit_after_saves.as_mut() {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                self.quit(tx);
+            }
+        }
     }
 
     /// `:q` closes the buffer and quits after the last one (`quit_last`); `SPC q` only closes.
@@ -226,8 +268,38 @@ impl App {
         });
     }
 
-    /// `:set name=value`, the palette's toggles and Settings' keymap switch.
+    /// `:set name=value`, the palette's toggles and Settings' keymap switch. The value `?` shows
+    /// the option, and `!` flips a switch.
     pub fn set_option(&mut self, k: &str, v: &str) {
+        // The core applied these. They last for the session, outside config.toml.
+        if matches!(k, "hlsearch" | "ignorecase" | "smartcase") {
+            return;
+        }
+        if v == "?" {
+            match self.option_value(k) {
+                Some(val) => self.ed.message(format!("  {k}={val}")),
+                None => self.ed.error(format!("E518: Unknown option: {k}")),
+            }
+            return;
+        }
+        let flipped;
+        let v = if v == "!" {
+            flipped = match self.option_value(k).as_deref() {
+                Some("true") => "false",
+                Some("false") => "true",
+                Some(_) => {
+                    self.ed.error(format!("E488: Trailing characters: {k}!"));
+                    return;
+                }
+                None => {
+                    self.ed.error(format!("E518: Unknown option: {k}"));
+                    return;
+                }
+            };
+            flipped
+        } else {
+            v
+        };
         let on = !matches!(v, "false" | "0" | "off" | "no");
         match k {
             "keymap" | "keys.map" => self.cfg.keys.map = if v == "classic" { "classic".into() } else { "neovim".into() },
@@ -263,7 +335,10 @@ impl App {
             "list" => self.cfg.editor.whitespace = on,
             "colorcolumn" | "cc" | "ruler" => self.cfg.editor.ruler = v.parse().unwrap_or(0),
             "mouse" => self.cfg.mouse.enabled = on && !v.is_empty(),
-            "tabstop" | "ts" | "shiftwidth" | "sw" => self.cfg.indent.width = v.parse().unwrap_or(self.cfg.indent.width),
+            "tabstop" | "ts" | "shiftwidth" | "sw" | "softtabstop" | "sts" => {
+                self.cfg.indent.width = v.parse().unwrap_or(self.cfg.indent.width)
+            }
+            "ligatures" => self.cfg.font.ligatures = on,
             "expandtab" | "et" => self.cfg.indent.spaces = on,
             "scrolloff" | "so" => self.cfg.editor.scrolloff = v.parse().unwrap_or(self.cfg.editor.scrolloff),
             _ => {
@@ -272,6 +347,27 @@ impl App {
             }
         }
         self.config_changed();
+    }
+
+    /// An option's value as `:set name?` shows it: `true` or `false` for a switch.
+    fn option_value(&self, k: &str) -> Option<String> {
+        let c = &self.cfg;
+        Some(match k {
+            "keymap" | "keys.map" => c.keys.map.clone(),
+            "theme" => c.theme.mode.clone(),
+            "wrap" => c.editor.wrap.to_string(),
+            "number" | "nu" | "numbers" => (c.editor.numbers != "off").to_string(),
+            "relativenumber" | "rnu" => matches!(c.editor.numbers.as_str(), "hybrid" | "relative").to_string(),
+            "cursorline" | "cul" => c.editor.cursorline.to_string(),
+            "list" => c.editor.whitespace.to_string(),
+            "colorcolumn" | "cc" | "ruler" => c.editor.ruler.to_string(),
+            "mouse" => c.mouse.enabled.to_string(),
+            "tabstop" | "ts" | "shiftwidth" | "sw" | "softtabstop" | "sts" => c.indent.width.to_string(),
+            "expandtab" | "et" => c.indent.spaces.to_string(),
+            "scrolloff" | "so" => c.editor.scrolloff.to_string(),
+            "ligatures" => c.font.ligatures.to_string(),
+            _ => return None,
+        })
     }
 
     /// Sends lines `first..=last` through `cmd`; the output replaces them when it arrives.

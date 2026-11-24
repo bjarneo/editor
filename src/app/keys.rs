@@ -78,6 +78,24 @@ pub const LEADER_GIT: &[(char, &str, bool)] =
 pub const LEADER_LSP: &[(char, &str, bool)] =
     &[('d', "definition", false), ('r', "references", false), ('h', "hover", false), ('n', "rename", false), ('a', "code actions", false)];
 
+/// The classic keymap's window shortcuts. They work with no file open and in the Settings tab.
+pub fn classic_window_key(k: &KeyInput) -> Option<Action> {
+    if !k.cmd {
+        return None;
+    }
+    Some(match k.code {
+        KeyCode::Char('p') if k.shift => Action::Palette,
+        KeyCode::Char('p') => Action::FindFile,
+        KeyCode::Char('f') if k.shift => Action::GrepProject,
+        KeyCode::Char('b') => Action::ToggleTree,
+        KeyCode::Char(',') => Action::Settings,
+        KeyCode::Char('q') => Action::QuitAll { force: false },
+        KeyCode::Tab if k.shift => Action::PrevBuffer,
+        KeyCode::Tab => Action::NextBuffer,
+        _ => return None,
+    })
+}
+
 impl App {
     pub fn key(&mut self, mut k: KeyInput, tx: &mut Tx) {
         if let Screen::Setup(_) = self.screen {
@@ -164,12 +182,7 @@ impl App {
                 editor::vim::open_cmdline(&mut self.ed, ':', "");
                 Vec::new()
             }
-            (Keymap::Classic, KeyCode::Char('p')) if k.cmd && k.shift => vec![Action::Palette],
-            (Keymap::Classic, KeyCode::Char('p')) if k.cmd => vec![Action::FindFile],
-            (Keymap::Classic, KeyCode::Char('f')) if k.cmd && k.shift => vec![Action::GrepProject],
-            (Keymap::Classic, KeyCode::Char('b')) if k.cmd => vec![Action::ToggleTree],
-            (Keymap::Classic, KeyCode::Char(',')) if k.cmd => vec![Action::Settings],
-            (Keymap::Classic, KeyCode::Char('q')) if k.cmd => vec![Action::QuitAll { force: false }],
+            (Keymap::Classic, _) => classic_window_key(&k).into_iter().collect(),
             _ => Vec::new(),
         };
         self.run_actions(actions, tx);
