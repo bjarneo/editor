@@ -32,7 +32,7 @@ that, and against speed.
   languages. LSP with diagnostics, go to definition, references, hover, completion, rename and
   code actions, from whatever servers you have installed.
 - **Find anything.** A fuzzy file finder, project search through ripgrep, a file tree with git
-  status, and a leader menu that shows every key.
+  status, and a list of every key with search: `F1`.
 - **Works with your AI agent.** No AI inside. Instead, Claude Code, Codex or any CLI agent sees
   what you are looking at and drives the editor over `editor mcp` or `editor ctl`: it reads
   your selection and unsaved text, points you at code, and proposes changes you accept with `y`.
@@ -61,29 +61,38 @@ that, and against speed.
 ### Release binaries
 
 Download the archive for your system from the
-[latest release](https://github.com/bjarneo/editor/releases/latest), then put `editor` on your
-`PATH`:
-
-```sh
-tar -xzf editor-*-x86_64-linux.tar.gz
-install -Dm755 editor-*/editor ~/.local/bin/editor
-editor .
-```
+[latest release](https://github.com/bjarneo/editor/releases/latest). Each archive holds one
+folder with `editor`, the README, the license and the icon.
 
 | Archive | System |
 | --- | --- |
-| `editor-<version>-x86_64-linux.tar.gz` | Linux, x86-64 |
-| `editor-<version>-aarch64-linux.tar.gz` | Linux, ARM64 |
-| `editor-<version>-aarch64-macos.tar.gz` | macOS, Apple silicon |
-| `editor-<version>-x86_64-macos.tar.gz` | macOS, Intel |
+| `editor-v<version>-x86_64-linux.tar.gz` | Linux, x86-64 |
+| `editor-v<version>-aarch64-linux.tar.gz` | Linux, ARM64 |
+| `editor-v<version>-aarch64-macos.tar.gz` | macOS, Apple silicon |
+| `editor-v<version>-x86_64-macos.tar.gz` | macOS, Intel |
 
-The macOS binaries are not signed. Before the first run, remove the quarantine flag:
+On Linux, put `editor` on your `PATH`:
 
 ```sh
-xattr -d com.apple.quarantine editor
+tar -xzf editor-v*-x86_64-linux.tar.gz
+install -Dm755 editor-v*/editor ~/.local/bin/editor
+editor .
 ```
 
-On Linux, the archive also holds `editor.desktop` and the icon, for app launchers.
+The Linux archive also holds `editor.desktop`, for app launchers. Setup can install it and
+make editor the default app for text files.
+
+The macOS binaries are not signed. Remove the quarantine flag before the first run:
+
+```sh
+tar -xzf editor-v*-aarch64-macos.tar.gz
+xattr -d com.apple.quarantine editor-v*/editor
+mkdir -p ~/.local/bin && cp editor-v*/editor ~/.local/bin/
+~/.local/bin/editor .
+```
+
+macOS does not put `~/.local/bin` on your `PATH`. Setup's terminal step adds it to your shell
+startup file.
 
 ### With Cargo
 
@@ -94,9 +103,9 @@ cargo install --locked --git https://github.com/bjarneo/editor
 Linux needs the Wayland and xkbcommon development packages to build:
 
 ```sh
-sudo apt-get install libxkbcommon-dev libwayland-dev   # Debian, Ubuntu
-sudo pacman -S libxkbcommon wayland                     # Arch
-sudo dnf install libxkbcommon-devel wayland-devel       # Fedora
+sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev    # Debian, Ubuntu
+sudo pacman -S pkgconf libxkbcommon wayland                        # Arch
+sudo dnf install pkgconf-pkg-config libxkbcommon-devel wayland-devel   # Fedora
 ```
 
 ## Quick start
@@ -112,8 +121,9 @@ A file opens in its project: the git work tree around it, else the nearest folde
 current folder and restores its last session.
 
 The first launch runs a five-step setup: keys, mouse, look, terminal and ready. The terminal
-step can add an `editor` command, set `$EDITOR` and set git's editor. It shows every command
-before it runs, and it runs only the ones you leave on.
+step can add an `editor` command, set `$EDITOR` and set git's editor. On Linux, it can also
+make editor the default app for text files. It shows every command before it runs, and it
+runs only the ones you leave on.
 
 <table>
 <tr>
@@ -129,8 +139,10 @@ before it runs, and it runs only the ones you leave on.
 | Save | `:w` | `Ctrl S` |
 | Go to file | `SPC f` | `Ctrl P` |
 | Find in project | `SPC /` | `Ctrl ⇧ F` |
-| Command palette | `:` | `Ctrl ⇧ P` |
-| Every key, in a popup | `SPC` | |
+| Command line | `:` | |
+| Command palette | | `Ctrl ⇧ P` |
+| Every key, with search | `SPC ?`, `F1` | `F1` |
+| Leader keys, in a popup | `SPC` | |
 | Go to definition | `gd` | `F12` |
 | Rename symbol | `SPC l n` | `F2` |
 | Code actions | `SPC l a` | `Ctrl .` |
@@ -138,7 +150,8 @@ before it runs, and it runs only the ones you leave on.
 | Next function | `]f` | |
 | Toggle comment | `gcc` | `Ctrl /` |
 | Add a cursor at the next match | | `Ctrl D` |
-| File tree | `SPC e` | `Ctrl B` |
+| Focus the file tree | `SPC e` | `Ctrl ⇧ E` |
+| Show or hide the file tree | `:Tree` | `Ctrl B` |
 | Settings | `:Settings` | `Ctrl ,` |
 
 On macOS, `⌘` replaces `Ctrl` in the classic keymap. [docs/keymaps.md](docs/keymaps.md) has
@@ -146,8 +159,9 @@ every key.
 
 ## Configuration
 
-Settings is a tab: run `:Settings` (or `Ctrl ,`), change options, and `:w` writes
-`~/.config/editor/config.toml`. Every change applies at once.
+Settings is a tab. Open it with `:Settings` or `SPC ,` in the Neovim keymap, or with `Ctrl ,`
+in the classic keymap. Change options, and `:w` writes `~/.config/editor/config.toml`. Every
+change applies at once.
 
 ```toml
 [theme]
@@ -208,6 +222,7 @@ Measured on a release build, Linux, x86-64:
 ## Develop
 
 ```sh
+cargo build
 cargo test                                            # core, tree-sitter, app and IPC tests
 target/debug/editor --snap out.png --scene finder     # render a scene, no window
 ```
@@ -219,8 +234,8 @@ recording videos and making a release.
 
 - Highlighting uses Rune's lexers. Tree-sitter drives only code objects and motions.
 - `gr`, `gF`, and `gn` that extends an existing Visual selection.
-- With several cursors, auto-closing brackets types only the char, and `Tab` indent does not
-  move the extra cursors.
+- With several cursors, auto-closing brackets types only the char. `Tab` replaces each
+  selection instead of indenting its lines, and `⇧ Tab` keeps only the main cursor.
 
 ## License
 

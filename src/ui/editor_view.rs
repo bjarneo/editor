@@ -107,16 +107,8 @@ fn tree(app: &App, p: &Palette, ui: TextStyle) -> El {
     } else {
         None
     };
-    let visible = ((app.m.text[3] - 4.0) / 22.0).floor().max(1.0) as usize;
-    let sel_i = app.tree.sel.as_ref().and_then(|s| rows.iter().position(|r| &r.path == s));
-    // Keep the keyboard row on screen.
-    let mut start = 0usize;
-    if let Some(i) = sel_i.or_else(|| active.as_ref().and_then(|a| rows.iter().position(|r| &r.path == a)))
-        && i >= visible
-    {
-        start = i + 1 - visible / 2;
-    }
-    start = start.min(rows.len().saturating_sub(visible));
+    let visible = app.tree_visible();
+    let start = app.tree_top(&rows);
     let mut list = col().w_full().pt(4.0);
     for r in rows.iter().skip(start).take(visible + 1) {
         let on = active.as_deref() == Some(r.path.as_str());
@@ -137,7 +129,7 @@ fn tree(app: &App, p: &Palette, ui: TextStyle) -> El {
         let path = r.path.clone();
         let dir = r.dir;
         let mut item = row()
-            .h(22.0)
+            .h(crate::app::tree::ROW_H)
             .w_full()
             .items_center()
             .pl(8.0)
@@ -194,17 +186,7 @@ fn tree(app: &App, p: &Palette, ui: TextStyle) -> El {
         .fill(p.bg2)
         .border_sides([0.0, 1.0, 0.0, 0.0], p.bd)
         .clip_rounded(0.0)
-        .on_wheel(|s: &mut App, e, _tx| {
-            let rows = s.tree.index.rows(&s.tree.open);
-            if rows.is_empty() {
-                return false;
-            }
-            let cur = s.tree.sel.as_ref().and_then(|x| rows.iter().position(|r| &r.path == x)).unwrap_or(0);
-            let step = (-e.dy / 22.0).round() as isize;
-            let next = (cur as isize + step).clamp(0, rows.len() as isize - 1) as usize;
-            s.tree.sel = Some(rows[next].path.clone());
-            true
-        })
+        .on_wheel(|s: &mut App, e, _tx| s.tree_wheel(e))
         .child(list)
         .child(edge)
 }

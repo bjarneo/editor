@@ -134,13 +134,13 @@ pub fn picker(app: &App, p: &Palette, pk: &Picker) -> El {
     );
     let results = widgets::titled("Results", p.ac, style, p).w_full().grow(1.0).min_h(0.0).child(list);
     let left = col()
-        .w(if matches!(pk.kind, PickKind::Commands | PickKind::Actions) { w - 20.0 } else { (w * 0.42).max(300.0) })
+        .w(if matches!(pk.kind, PickKind::Commands | PickKind::Actions | PickKind::Keys) { w - 20.0 } else { (w * 0.42).max(300.0) })
         .h_full()
         .gap(14.0)
         .child(input)
         .child(results);
     let mut panel = row().w(w).h(h).gap(14.0).padding(10.0).radius(8.0).fill(p.bg).shadow(24.0, 70.0, Color::BLACK.alpha(0.45)).child(left);
-    if !matches!(pk.kind, PickKind::Commands | PickKind::Actions) {
+    if !matches!(pk.kind, PickKind::Commands | PickKind::Actions | PickKind::Keys) {
         panel = panel.child(preview(app, p, pk));
     }
     let x = ((win_w - w) / 2.0).max(16.0);
@@ -160,6 +160,13 @@ fn row_text(app: &App, pk: &Picker, i: usize) -> (String, String, Vec<usize>, St
         }
         _ => {
             let m = &pk.matches[i];
+            // A key row is the keys and what they do, then a tab and the section, drawn dim.
+            if pk.kind == PickKind::Keys {
+                let (main, section) = pk.items[m.index].split_once('\t').unwrap_or((&pk.items[m.index], ""));
+                let n = main.chars().count();
+                let hits = m.hits.iter().copied().filter(|&h| h < n).collect();
+                return (String::new(), main.to_string(), hits, section.to_string());
+            }
             let full = if pk.kind == PickKind::Files { app.files[m.index].clone() } else { pk.items[m.index].clone() };
             let split = if pk.kind == PickKind::Files { full.rfind('/').map_or(0, |i| i + 1) } else { 0 };
             let dir = full[..split].to_string();

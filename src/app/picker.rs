@@ -1,5 +1,5 @@
 //! The pickers that share the finder overlay: files (`SPC f`, ⌘P), project search (`SPC /`,
-//! ⇧⌘F), open buffers (`SPC b`) and the command palette (⇧⌘P).
+//! ⇧⌘F), open buffers (`SPC b`), the command palette (⇧⌘P) and the key list (`F1`).
 
 use std::path::PathBuf;
 
@@ -23,6 +23,8 @@ pub enum PickKind {
     Locations,
     /// The language server's code actions at the cursor.
     Actions,
+    /// Every key of the keymap, from `docs/keymaps.md`.
+    Keys,
 }
 
 impl PickKind {
@@ -34,6 +36,7 @@ impl PickKind {
             PickKind::Commands => "Commands",
             PickKind::Locations => "Locations",
             PickKind::Actions => "Code Actions",
+            PickKind::Keys => "Keys",
         }
     }
 }
@@ -71,6 +74,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("Theme: follow the OS", "theme=system"),
     ("Theme: follow Omarchy", "theme=omarchy"),
     ("Toggle soft wrap", "wrap"),
+    ("Show every key", "keys"),
     ("Agent: list outside changes", "outside"),
     ("Agent: clear change marks", "clear-outside"),
     ("Agent: show the next proposal", "proposal"),
@@ -86,6 +90,16 @@ impl Picker {
     pub fn refilter(&mut self, files: &[String]) {
         let (matches, total) = match self.kind {
             PickKind::Files => fuzzy::rank(&self.query, files, LIMIT),
+            // The key list shows every key, so a scroll reaches the last one.
+            PickKind::Keys if self.query.is_empty() => {
+                let all: Vec<Match> = (0..self.items.len()).map(|index| Match { index, score: 0, hits: Vec::new() }).collect();
+                (all, self.items.len())
+            }
+            PickKind::Keys => {
+                let m = super::key_list::filter(&self.query, &self.items);
+                let n = m.len();
+                (m, n)
+            }
             // With nothing typed, buffers, commands and code actions keep their own order.
             PickKind::Buffers | PickKind::Commands | PickKind::Actions if self.query.is_empty() => {
                 let all: Vec<Match> = (0..self.items.len().min(LIMIT)).map(|index| Match { index, score: 0, hits: Vec::new() }).collect();
@@ -127,6 +141,7 @@ impl App {
                 self.grep.hits.clear();
                 self.grep.error = None;
             }
+            PickKind::Keys => p.items = super::key_list::items(self.is_vim()),
             PickKind::Files | PickKind::Locations | PickKind::Actions => {}
         }
         p.refilter(&self.files);
@@ -193,6 +208,15 @@ impl App {
         self.ask_preview();
     }
 
+    /// Opens the key list, with `query` typed in its search line.
+    pub fn open_key_list(&mut self, query: String) {
+        self.open_picker(PickKind::Keys);
+        if let Overlay::Pick(p) = &mut self.overlay {
+            p.query = query;
+            p.refilter(&self.files);
+        }
+    }
+
     /// Lists code actions to pick from.
     pub fn open_actions(&mut self, titles: Vec<String>) {
         let mut p = Picker::new(PickKind::Actions);
@@ -222,7 +246,7 @@ impl App {
                 let l = self.locations.get(p.sel)?;
                 Some((l.path.clone(), Some(l.pos)))
             }
-            PickKind::Commands | PickKind::Actions => None,
+            PickKind::Commands | PickKind::Actions | PickKind::Keys => None,
         }
     }
 
@@ -251,6 +275,10 @@ impl App {
             if let (Some(index), Some(svc)) = (index, &self.svc) {
                 svc.lsp(crate::services::lsp::Job::RunAction { index });
             }
+            return;
+        }
+        if kind == PickKind::Keys {
+            self.overlay = Overlay::None;
             return;
         }
         if kind == PickKind::Commands {
@@ -290,6 +318,7 @@ impl App {
             "next" => Action::NextBuffer,
             "prev" => Action::PrevBuffer,
             "wrap" => Action::SetOption("wrap".into(), (!self.cfg.editor.wrap).to_string()),
+            "keys" => Action::KeyList(String::new()),
             "outside" => {
                 self.show_outside();
                 return;

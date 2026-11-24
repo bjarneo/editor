@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod ipc;
+pub mod key_list;
 pub mod keys;
 pub mod lsp;
 pub mod menu;
@@ -82,6 +83,11 @@ pub struct Tree {
     pub focus: bool,
     /// The row the keyboard is on, by path.
     pub sel: Option<String>,
+    /// The first row on screen, and the part of a row the wheel has turned but not scrolled.
+    pub top: usize,
+    pub wheel_rest: f32,
+    /// Whether the next frame scrolls to bring `sel` on screen.
+    pub follow: tree::Follow,
     pub width: f32,
     /// Each folder's children, rebuilt when the project's files change.
     pub index: tree::TreeIndex,
@@ -222,6 +228,9 @@ impl App {
                 open: HashSet::new(),
                 focus: false,
                 sel: None,
+                top: 0,
+                wheel_rest: 0.0,
+                follow: tree::Follow::No,
                 width: cfg.ui.tree_width,
                 index: tree::TreeIndex::default(),
             },
@@ -634,6 +643,8 @@ impl App {
     /// Opens the folders above `path` in the tree.
     pub fn reveal_in_tree(&mut self, path: &Path) {
         let Ok(rel) = path.strip_prefix(&self.ed.root) else { return };
+        self.settle_tree_top();
+        self.tree.follow = tree::Follow::Center;
         let mut acc = String::new();
         if let Some(parent) = rel.parent() {
             for c in parent.components() {

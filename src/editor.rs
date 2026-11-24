@@ -159,6 +159,8 @@ pub enum Action {
     LeaderMenu,
     /// Open the command palette (classic keymap).
     Palette,
+    /// Open the list of every key, with this text in its search line (`F1`, `SPC ?`, `:Keys`).
+    KeyList(String),
     /// Put this text on the system clipboard.
     Copy(String),
     /// Read the system clipboard and type it in Insert mode (`Ctrl r +`).

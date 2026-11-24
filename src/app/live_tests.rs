@@ -77,6 +77,9 @@ fn every_leader_menu_key_does_what_it_says() {
     leader(&mut rt, ",");
     settle(&mut rt, "SPC , opens settings", |s| s.on_settings);
     rt.update(|s: &mut App, _| s.on_settings = false);
+    leader(&mut rt, "?");
+    settle(&mut rt, "SPC ? shows every key", |s| picking(s, PickKind::Keys));
+    typ(&mut rt, "\x1b");
 
     // +git: the two changed blocks, in order and around.
     settle(&mut rt, "git signs", |s| s.meta.get(&s.ed.buf().path.clone().unwrap()).is_some_and(|m| !m.signs.is_empty()));
@@ -165,7 +168,7 @@ fn every_leader_menu_key_does_what_it_says() {
     settle(&mut rt, "SPC q closes the buffer", |s| s.ed.docs.len() == 1);
 
     // A key added to the menu must be added here too.
-    let tested = ["f", "b", "/", "e", ",", "d", "gn", "gp", "gs", "ld", "lr", "lh", "ln", "la", "w", "al", "ac", "ap", "an", "q"];
+    let tested = ["f", "b", "/", "e", ",", "?", "d", "gn", "gp", "gs", "ld", "lr", "lh", "ln", "la", "w", "al", "ac", "ap", "an", "q"];
     let shown = crate::app::keys::LEADER.iter().filter(|(_, _, group)| !group).map(|(c, _, _)| c.to_string());
     let groups = [('g', crate::app::keys::LEADER_GIT), ('l', crate::app::keys::LEADER_LSP), ('a', crate::app::keys::LEADER_AGENT)];
     let shown = shown.chain(groups.iter().flat_map(|(g, keys)| keys.iter().map(move |(c, _, _)| format!("{g}{c}"))));
@@ -224,6 +227,7 @@ fn every_palette_command_does_what_it_says() {
     }
     let wrap = rt.update_if(|s: &mut App, _| s.cfg.editor.wrap);
     check(&mut rt, "wrap", "wrap toggles soft wrap", &move |s| s.cfg.editor.wrap != wrap);
+    check(&mut rt, "keys", "keys shows every key", &|s| picking(s, PickKind::Keys));
     check(&mut rt, "outside", "outside says when there is nothing", &|s| said(s, "no changes from outside"));
     check(&mut rt, "clear-outside", "clear-outside confirms", &|s| said(s, "cleared"));
     check(&mut rt, "proposal", "proposal says when there is none", &|s| said(s, "no proposals"));
@@ -372,4 +376,112 @@ fn typing_right_after_a_save_is_not_a_conflict() {
     }
     assert!(!rt.state.meta.get(&path).is_some_and(|m| m.conflict), "marked as changed on disk");
     assert!(!said(&rt.state, "W12"), "{:?}", rt.state.ed.msg);
+}
+
+fn key_rows(s: &App) -> Vec<String> {
+    let Overlay::Pick(p) = &s.overlay else { return Vec::new() };
+    p.matches.iter().map(|m| p.items[m.index].clone()).collect()
+}
+
+/// `F1`, `SPC ?`, `:Keys`, `:h` and the tree's `?` show every key, and the search keeps the rows
+/// with every word. Each keymap lists its own keys.
+#[test]
+fn every_key_shows_in_a_list_with_search() {
+    let mut rt = run(super::app("neovim"));
+    let f1 = |rt: &mut Runtime<App>| press(rt, Key::Function(1), Mods::default());
+    f1(&mut rt);
+    assert!(picking(&rt.state, PickKind::Keys), "F1 opens the list");
+    let all = key_rows(&rt.state);
+    assert!(
+        all.len() > 300 && all.iter().any(|r| r.starts_with("SPC f ")) && !all.iter().any(|r| r.starts_with("Ctrl D ")),
+        "{}",
+        all.len()
+    );
+    typ(&mut rt, "tree");
+    let found = key_rows(&rt.state);
+    assert!(!found.is_empty() && found.len() < 60, "{} rows", found.len());
+    assert!(found.iter().all(|r| r.to_lowercase().contains("tree")), "{found:#?}");
+    f1(&mut rt);
+    assert!(matches!(rt.state.overlay, Overlay::None), "F1 again closes it");
+
+    typ(&mut rt, ":Keys dd\n");
+    assert!(picking(&rt.state, PickKind::Keys), ":Keys");
+    let found = key_rows(&rt.state);
+    assert!(!found.is_empty() && found.iter().all(|r| r.contains("dd")), "{found:#?}");
+    typ(&mut rt, "\n");
+    assert!(matches!(rt.state.overlay, Overlay::None), "Enter closes it");
+    typ(&mut rt, ":h\n");
+    assert!(picking(&rt.state, PickKind::Keys), ":h");
+    typ(&mut rt, "\x1b");
+    typ(&mut rt, "i");
+    f1(&mut rt);
+    assert!(picking(&rt.state, PickKind::Keys), "F1 works in Insert mode");
+    typ(&mut rt, "\x1b\x1b");
+
+    let mut a = super::app("classic");
+    a.tree.index = crate::app::tree::TreeIndex::build(&["a.txt".to_string(), "b.txt".to_string()]);
+    let mut rt = run(a);
+    f1(&mut rt);
+    let all = key_rows(&rt.state);
+    assert!(all.iter().any(|r| r.starts_with("Ctrl D ")) && !all.iter().any(|r| r.starts_with("SPC f ")), "the classic keys");
+    assert!(all.iter().any(|r| r.starts_with("Show every key ")), "the palette entries are in the classic list");
+    typ(&mut rt, "\x1b");
+    press(&mut rt, Key::Text("E".into()), Mods { ctrl: true, cmd: true, shift: true, ..Default::default() });
+    assert!(rt.state.tree.show && rt.state.tree.focus, "Ctrl ⇧ E focuses the tree");
+    typ(&mut rt, "?");
+    assert!(picking(&rt.state, PickKind::Keys), "? in the tree shows every key");
+}
+
+/// The wheel over the tree scrolls it a row per 22 points, adds up a trackpad's small steps
+/// and leaves the keyboard row alone. Keys bring the keyboard row back on screen.
+#[test]
+fn the_wheel_scrolls_the_tree_and_keys_bring_the_row_back() {
+    let mut a = super::app("neovim");
+    let files: Vec<String> = (0..200).map(|i| format!("f{i:03}.txt")).collect();
+    a.tree.index = crate::app::tree::TreeIndex::build(&files);
+    let mut rt = run(a);
+    let top = |rt: &Runtime<App>| rt.state.tree_top(&rt.state.tree.index.rows(&rt.state.tree.open));
+    let sel = |rt: &Runtime<App>| rt.state.tree.sel.clone().unwrap_or_default();
+    let visible = rt.state.tree_visible();
+    let max = 200 - visible;
+    let wheel = |rt: &mut Runtime<App>, dy: f32| {
+        let mut ev = rune::WheelEvent::default();
+        (ev.x, ev.y, ev.dy) = (60.0, 300.0, dy);
+        rt.wheel_event(ev);
+        rt.frame(1.0 / 60.0);
+    };
+    wheel(&mut rt, -220.0);
+    assert_eq!(top(&rt), 10, "ten rows down");
+    assert_eq!(rt.state.tree.sel, None, "the wheel leaves the keyboard row");
+    for _ in 0..11 {
+        wheel(&mut rt, -2.0);
+    }
+    assert_eq!(top(&rt), 11, "eleven 2-point trackpad steps make one row");
+    wheel(&mut rt, 22.0 * 500.0);
+    assert_eq!(top(&rt), 0, "it stops at the first row");
+    wheel(&mut rt, -22.0 * 500.0);
+    assert_eq!(top(&rt), max, "it stops with the last row at the bottom");
+
+    leader(&mut rt, "e");
+    assert!(rt.state.tree.focus);
+    typ(&mut rt, "j");
+    assert_eq!(sel(&rt), "f001.txt");
+    assert_eq!(top(&rt), 1, "j scrolls back to the keyboard row");
+    ctrl(&mut rt, 'd');
+    assert_eq!(sel(&rt), format!("f{:03}.txt", 1 + visible / 2), "Ctrl d moves half a screen");
+    ctrl(&mut rt, 'u');
+    assert_eq!(sel(&rt), "f001.txt", "Ctrl u moves back");
+    press(&mut rt, Key::PageDown, Mods::default());
+    assert_eq!(sel(&rt), format!("f{:03}.txt", visible), "PageDown moves a screen");
+    typ(&mut rt, "G");
+    assert_eq!((sel(&rt), top(&rt)), ("f199.txt".to_string(), max), "G goes to the last row and shows it");
+    wheel(&mut rt, 22.0 * 5.0);
+    assert_eq!(top(&rt), max - 5, "the wheel scrolls while the tree has the focus");
+    typ(&mut rt, "k");
+    assert_eq!((sel(&rt), top(&rt)), ("f198.txt".to_string(), 198 + 1 - visible), "k shows the row at the bottom edge");
+
+    rt.update(|s: &mut App, _| s.cfg.mouse.scroll = false);
+    let before = top(&rt);
+    wheel(&mut rt, -22.0 * 5.0);
+    assert_eq!(top(&rt), before, "mouse.scroll off leaves the tree still");
 }

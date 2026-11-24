@@ -61,6 +61,7 @@ fn run(ed: &mut Editor, k: KeyInput, out: &mut Vec<Action>) {
             Some('p') if k.shift => Some(Action::Palette),
             Some('p') => Some(Action::FindFile),
             Some('f') if k.shift => Some(Action::GrepProject),
+            Some('e') if k.shift => Some(Action::FocusTree),
             Some('b') => Some(Action::ToggleTree),
             Some('w') => Some(Action::CloseBuffer),
             Some(',') => Some(Action::Settings),

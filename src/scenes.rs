@@ -15,6 +15,9 @@ pub const SCENES: &[Scene] = &[
     ("visual", visual),
     ("leader", leader),
     ("finder", finder),
+    ("keys", keys),
+    ("keys-search", keys_search),
+    ("tree-scrolled", tree_scrolled),
     ("classic", classic),
     ("light", light),
     ("omarchy", omarchy),
@@ -114,6 +117,23 @@ fn finder(app: &mut App) {
             p.preview = std::fs::read_to_string(&path).ok().map(|t| (path, t));
         }
     }
+}
+
+fn keys(app: &mut App) {
+    sample(app);
+    app.open_key_list(String::new());
+}
+
+fn keys_search(app: &mut App) {
+    sample(app);
+    app.open_key_list("tree".into());
+}
+
+/// The tree scrolled 30 rows down by the wheel. The keyboard row stays where it was.
+fn tree_scrolled(app: &mut App) {
+    sample(app);
+    app.tree.top = 30;
+    app.tree.follow = crate::app::tree::Follow::No;
 }
 
 fn classic(app: &mut App) {

@@ -512,8 +512,11 @@ fn step_shell(s: &Setup, p: &Palette, st: &Style, focus: Option<Choice>) -> El {
         ("path", "Add a terminal command".to_string(), format!("Open anything with {name} . or {name} file.rs")),
         ("env", "Set as $EDITOR and $VISUAL".into(), "For tools that open an editor, like crontab -e".into()),
         ("git", "Use for git commit messages".into(), "git waits until you close the buffer".into()),
-        ("default", "Make editor the default for text files".into(), "Double-clicking .rs, .md, .toml and friends".into()),
+        ("default", "Make editor the default for text files".into(), "A double-click opens code and text files".into()),
     ] {
+        if k == "default" && s.mac {
+            continue;
+        }
         integ = integ.child(toggle(Choice::Toggle(k), &label, &sub, s.toggle_on(k), focus == Some(Choice::Toggle(k)), p, st));
     }
     let cmds = s.commands();
@@ -522,9 +525,11 @@ fn step_shell(s: &Setup, p: &Palette, st: &Style, focus: Option<Choice>) -> El {
         runs = runs.child(text("nothing; editor stays inside its window").font(st.small).color(p.fg2));
     }
     for cmd in cmds {
-        // A long command wraps inside the panel instead of running past its border.
-        let line = text(cmd).font(st.small).color(p.fg).wrap_anywhere().grow(1.0).min_w(0.0);
-        runs = runs.child(row().w_full().items_start().child(text("$ ").font(st.small).color(p.fg3)).child(line));
+        // A long command wraps inside the panel instead of running past its border. A `#` line
+        // says what a step writes, as a comment in a shell script does.
+        let note = cmd.starts_with("# ");
+        let line = text(cmd).font(st.small).color(if note { p.fg2 } else { p.fg }).wrap_anywhere().grow(1.0).min_w(0.0);
+        runs = runs.child(row().w_full().items_start().child(text(if note { "" } else { "$ " }).font(st.small).color(p.fg3)).child(line));
     }
     c.child(row().gap(16.0).flex_wrap().items_start().child(integ).child(runs))
 }

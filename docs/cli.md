@@ -29,7 +29,7 @@ editor [PATH[:LINE]]... [+LINE] [--wait] [--new]
 | `editor --wait NOTES.md` | Returns when you close that buffer. See [Use editor as `$EDITOR`](#use-editor-as-editor). |
 | `editor --new` | Opens a new window, also when an editor runs for the project already. |
 | `editor --help`, `editor -h` | Prints the usage. |
-| `editor --version`, `editor -V` | Prints the version: `editor 0.3.1`. |
+| `editor --version`, `editor -V` | Prints the version: `editor 0.3.2`. |
 
 A file that does not exist opens as a new, empty buffer. `:w` creates it.
 

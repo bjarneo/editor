@@ -66,7 +66,7 @@ name = "editor"
 path = true
 editor_env = true
 git = true
-default_app = false
+default_app = false      # Linux: the default app for the file types in editor.desktop
 ```
 
 ## Themes

@@ -32,6 +32,7 @@ it. `Esc` or any other key closes the popup. With the Space leader, the status l
 | `SPC q` | Close the buffer. A modified buffer stays open |
 | `SPC d` | List the diagnostics of this file |
 | `SPC ,` | Open Settings |
+| `SPC ?` | Show every key, with search. See [Key list](#key-list) |
 | `SPC g n`, `SPC g p` | Next, previous git change against `HEAD`. Wraps around |
 | `SPC g s` | Show and focus the file tree, with its git status letters |
 | `SPC l d` | Go to the definition |
@@ -399,6 +400,7 @@ A command takes a range when the table shows one. The next section explains rang
 | `:Grep`, `:grep`, `:rg` | Search the project |
 | `:Explore`, `:Ex`, `:Tree` | Show or hide the file tree |
 | `:Settings`, `:settings` | Open Settings |
+| `:Keys [words]`, `:help [words]`, `:h [words]` | Show every key. The words go in the search line |
 | `:Rename name`, `:rename name` | Rename the symbol under the cursor, with the language server |
 | `:CodeAction`, `:codeaction`, `:ca` | List the code actions, with the language server |
 | `:{range}` | Go to the last line of the range: `:42`, `:$`, `:'a` |
@@ -535,10 +537,12 @@ classic keymap.
 | `F2` | Rename the symbol. Opens `:Rename` with the word under the cursor |
 | `Ctrl .` | List the code actions |
 | `Ctrl B` | Show or hide the file tree |
+| `Ctrl ⇧ E` | Show the file tree and give it the focus |
 | `Ctrl Tab` `Ctrl ⇧ Tab` | Next, previous tab |
 | `Ctrl Q` | Quit. A modified buffer stops it |
 | `Ctrl W` | Close the tab. A modified tab stays open |
 | `Ctrl ,` | Settings |
+| `F1` | Show every key, with search |
 | `Esc` | Drop the selection |
 
 The text that you type between two cursor moves undoes as one step. A copied whole line
@@ -592,18 +596,22 @@ These keys work in both keymaps, unless a row says otherwise.
 
 ### File tree
 
-`SPC e` and `SPC g s` show the tree and give it the focus. `:Tree` and the classic `Ctrl B`
-show or hide it. A click on the text gives the focus back. These keys work while the tree has
-the focus.
+`SPC e` and `SPC g s` in the Neovim keymap, and `Ctrl ⇧ E` in the classic keymap, show the
+tree and give it the focus. `:Tree` and the classic `Ctrl B` show or hide it. A click on the
+text gives the focus back. The mouse wheel over the tree scrolls it, with or without the
+focus. These keys work while the tree has the focus.
 
 | Keys | Does |
 | --- | --- |
 | `j` `↓`, `k` `↑` | Move down, up |
-| `g`, `G` | Go to the first, the last row |
+| `Ctrl d`, `Ctrl u` | Move half a screen down, up. Neovim keymap |
+| `PageDown`, `PageUp` | Move a screen down, up |
+| `g` `Home`, `G` `End` | Go to the first, the last row |
 | `l` `→` | Open a closed folder, or open a file |
 | `Enter` `o` | Open or close a folder, or open a file |
 | `h` `←` | Close an open folder, or go to the parent folder |
 | `Esc` `q` | Give the focus back to the text |
+| `?` | Show every key, with search |
 | `:` | Open the command line. Neovim keymap |
 | `SPC` | Open the leader menu. Neovim keymap |
 | `Ctrl` shortcuts | Work as in the text: `Ctrl P` finds a file, `Ctrl S` writes |
@@ -614,8 +622,8 @@ it changed.
 
 ### Pickers
 
-The file finder, project search, the buffer list, the command palette, references,
-diagnostics, outside changes and code actions open in one picker.
+The file finder, project search, the buffer list, the command palette, the key list,
+references, diagnostics, outside changes and code actions open in one picker.
 
 | Keys | Does |
 | --- | --- |
@@ -647,14 +655,27 @@ too. The picker `Ctrl` keys use `Ctrl` on macOS too.
 | `Keymap: Neovim`, `Keymap: classic` | Switch the keymap |
 | `Theme: dark`, `Theme: light`, `Theme: follow the OS`, `Theme: follow Omarchy` | Switch the theme |
 | `Toggle soft wrap` | Turn soft wrap on or off |
+| `Show every key` | Show every key, with search |
 | `Agent: list outside changes` | List the changes made on disk from outside the editor |
 | `Agent: clear change marks` | Clear the outside-change marks |
 | `Agent: show the next proposal` | Show the next agent proposal |
 | `Quit` | Quit. A modified buffer stops it |
 
+### Key list
+
+`F1` shows every key of the keymap you use, in a picker. In the Neovim keymap, `SPC ?` and
+`:Keys` show it too, and `:h dd` opens it with `dd` in the search line. In the file tree, `?`
+shows it. The list comes from this file, so it always shows the keys that this file
+describes.
+
+Type words to search. A row stays when it holds every word, in its keys, in what it does or
+in its section name. Case counts only when you type an uppercase letter, as with `smartcase`.
+`Enter`, `Esc` or `F1` closes the list.
+
 ### Settings
 
-`:Settings`, `SPC ,` or `Ctrl ,` opens Settings as a tab. A change applies at once.
+`:Settings` or `SPC ,` in the Neovim keymap, and `Ctrl ,` in the classic keymap, open
+Settings as a tab. A change applies at once.
 
 | Keys | Does |
 | --- | --- |
@@ -757,8 +778,8 @@ Turn the mouse on or off in setup, in Settings or with `:set mouse`. When it is 
 - A right-click opens the context menu, when `mouse.right_click` is on.
 - A click on a tab goes to it. A click on its `×`, or a middle-click on the tab, closes it.
   A tab with unsaved changes stays open.
-- A click on a row of the file tree opens the file or folder. The wheel over the tree moves
-  its selection. Drag the tree's edge to resize it.
+- A click on a row of the file tree opens the file or folder. The wheel over the tree scrolls
+  it, and the keyboard row stays where it was. Drag the tree's edge to resize it.
 - A click on a row of a picker or the leader menu runs it.
 - In Settings, a click picks a section, changes an option or writes `config.toml` with the
   `:w` button on the status line.

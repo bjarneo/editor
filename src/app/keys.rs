@@ -65,6 +65,7 @@ pub const LEADER: &[(char, &str, bool)] = &[
     ('q', "close buffer", false),
     ('d', "diagnostics", false),
     (',', "settings", false),
+    ('?', "every key", false),
     ('g', "+git", true),
     ('l', "+lsp", true),
     ('a', "+agent", true),
@@ -83,8 +84,14 @@ pub fn classic_window_key(k: &KeyInput) -> Option<Action> {
     if !k.cmd {
         return None;
     }
-    Some(match k.code {
+    // Some platforms send `Ctrl ⇧ P` as an uppercase `P`.
+    let code = match k.code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        c => c,
+    };
+    Some(match code {
         KeyCode::Char('p') if k.shift => Action::Palette,
+        KeyCode::Char('e') if k.shift => Action::FocusTree,
         KeyCode::Char('p') => Action::FindFile,
         KeyCode::Char('f') if k.shift => Action::GrepProject,
         KeyCode::Char('b') => Action::ToggleTree,
@@ -104,6 +111,15 @@ impl App {
         }
         if self.ed.keymap == Keymap::Vim && k.ctrl && k.code == KeyCode::Char('[') {
             k = KeyInput::plain(KeyCode::Esc);
+        }
+        // F1 shows every key from anywhere, as Vim's F1 shows its help. F1 again closes it.
+        if k.code == KeyCode::F(1) {
+            let open = matches!(&self.overlay, Overlay::Pick(p) if p.kind == super::picker::PickKind::Keys);
+            self.overlay = Overlay::None;
+            if !open {
+                self.open_key_list(String::new());
+            }
+            return;
         }
         match &self.overlay {
             Overlay::Leader(group) => {
@@ -199,18 +215,12 @@ impl App {
                     self.tree.show = false;
                     self.tree.focus = false;
                 } else {
-                    self.tree.show = true;
-                    self.tree.focus = true;
-                    if self.tree.sel.is_none()
-                        && self.ed.has_doc()
-                        && let Some(p) = self.ed.buf().path.clone()
-                    {
-                        self.reveal_in_tree(&p);
-                    }
+                    self.focus_tree();
                 }
                 return;
             }
             (None, '/') => vec![Action::GrepProject],
+            (None, '?') => vec![Action::KeyList(String::new())],
             (None, 'b') => vec![Action::PickBuffer],
             (None, 'w') => vec![Action::Save(None)],
             (None, 'q') => vec![Action::CloseBuffer],

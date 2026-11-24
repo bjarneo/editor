@@ -47,14 +47,12 @@ impl App {
                 Action::GrepProject => self.open_picker(PickKind::Grep),
                 Action::PickBuffer => self.open_picker(PickKind::Buffers),
                 Action::Palette => self.open_picker(PickKind::Commands),
+                Action::KeyList(query) => self.open_key_list(query),
                 Action::ToggleTree => {
                     self.tree.show = !self.tree.show;
                     self.tree.focus = false;
                 }
-                Action::FocusTree => {
-                    self.tree.show = true;
-                    self.tree.focus = true;
-                }
+                Action::FocusTree => self.focus_tree(),
                 Action::CloseBuffer => self.close_active(false, false, tx),
                 Action::NextBuffer => self.cycle_buffer(1),
                 Action::PrevBuffer => self.cycle_buffer(-1),

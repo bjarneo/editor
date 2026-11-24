@@ -12,7 +12,11 @@ use super::{App, Screen};
 use crate::config::Config;
 use crate::theme::Omarchy;
 
-pub const STEPS: &[&str] = &["keys", "mouse", "look", "shell", "done"];
+pub const STEPS: &[&str] = &["keys", "mouse", "look", "terminal", "ready"];
+
+/// The desktop entry and icon the default-app choice installs on Linux.
+const DESKTOP: &str = include_str!("../../assets/editor.desktop");
+const ICON: &str = include_str!("../../assets/editor.svg");
 pub const FONTS: &[&str] = &["JetBrains Mono", "IBM Plex Mono", "Fira Code"];
 pub const SIZES: &[f32] = &[12.0, 13.0, 14.0, 16.0];
 pub const LOOKS: &[&str] = &["light", "dark", "system", "omarchy"];
@@ -25,6 +29,10 @@ pub struct Setup {
     /// The focused choice on this step.
     pub focus: usize,
     pub shadow: bool,
+    /// Whether `~/.local/bin` is on `$PATH`. When it is not, the terminal step adds it.
+    pub bin_on_path: bool,
+    /// This binary, with links resolved. The command link is not made when it is the binary.
+    pub exe: Option<PathBuf>,
     /// `command -v` answers by name, so each name is looked up once.
     pub on_path: HashMap<String, Option<String>>,
     pub omarchy_name: Option<String>,
@@ -55,6 +63,8 @@ impl Setup {
             mac: cfg!(target_os = "macos"),
             focus: 0,
             shadow: false,
+            bin_on_path: bin_on_path(),
+            exe: std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()),
             on_path: HashMap::new(),
             omarchy_name: omarchy.map(|o| o.name.clone()),
         }
@@ -99,7 +109,11 @@ impl Setup {
                         c.push(Choice::Shadow);
                     }
                 }
-                c.extend([Choice::Toggle("path"), Choice::Toggle("env"), Choice::Toggle("git"), Choice::Toggle("default")]);
+                c.extend([Choice::Toggle("path"), Choice::Toggle("env"), Choice::Toggle("git")]);
+                // The release ships no macOS app bundle, so only Linux can be the default app.
+                if !self.mac {
+                    c.push(Choice::Toggle("default"));
+                }
             }
             _ => {
                 c.extend((0..5).map(Choice::Change));
@@ -195,8 +209,23 @@ impl Setup {
         self.name_valid() && (self.taken().is_none() || self.shadow)
     }
 
+    /// The folder for the terminal command. `/usr/local/bin` needs root on a new Mac, so both
+    /// systems use the user's own folder.
     pub fn bin_dir(&self) -> String {
-        if cfg!(target_os = "macos") { "/usr/local/bin".into() } else { "~/.local/bin".into() }
+        "~/.local/bin".into()
+    }
+
+    /// Whether this binary is the terminal command already: `~/.local/bin/<name>`, as the README
+    /// installs it. A link there would replace the binary with a link to itself.
+    pub fn in_bin(&self) -> bool {
+        let (Some(exe), Some(home)) = (&self.exe, dirs::home_dir()) else { return false };
+        *exe == home.join(".local/bin").join(&self.cfg.cli.name)
+    }
+
+    /// Whether the terminal step adds `~/.local/bin` to the front of `$PATH`: when it is not on
+    /// `$PATH`, or when editor's command must come before a program with the same name.
+    pub fn adds_path(&self) -> bool {
+        !self.bin_on_path || (self.taken().is_some() && self.shadow)
     }
 
     pub fn rc_file(&self) -> String {
@@ -212,8 +241,10 @@ impl Setup {
         let cmd_ref = if cli.path && self.installable() { name.clone() } else { exe.clone() };
         let mut out = Vec::new();
         if cli.path && self.installable() {
-            out.push(format!("ln -sf {exe} {}/{name}", self.bin_dir()));
-            if self.taken().is_some() && self.shadow {
+            if !self.in_bin() {
+                out.push(format!("mkdir -p {0} && ln -sf {exe} {0}/{name}", self.bin_dir()));
+            }
+            if self.adds_path() {
                 out.push(format!("echo 'export PATH=\"{}:$PATH\"' >> {}", self.bin_dir().replace('~', "$HOME"), self.rc_file()));
             }
         }
@@ -223,15 +254,24 @@ impl Setup {
         if cli.git {
             out.push(format!("git config --global core.editor \"{cmd_ref} --wait\""));
         }
-        if cli.default_app {
-            out.push(if cfg!(target_os = "macos") {
-                "duti -s dev.editor.app public.plain-text all".into()
-            } else {
-                "xdg-mime default editor.desktop text/plain".into()
-            });
+        if cli.default_app && !self.mac {
+            out.push("# write ~/.local/share/applications/editor.desktop and its icon".into());
+            out.push(format!("xdg-mime default editor.desktop {}", mime_types().join(" ")));
         }
         out
     }
+}
+
+/// Whether `~/.local/bin` is a folder on `$PATH`.
+fn bin_on_path() -> bool {
+    let (Some(path), Some(home)) = (std::env::var_os("PATH"), dirs::home_dir()) else { return false };
+    let bin = home.join(".local/bin");
+    std::env::split_paths(&path).any(|d| d == bin)
+}
+
+/// The file types the desktop entry opens: its `MimeType=` line.
+fn mime_types() -> Vec<&'static str> {
+    DESKTOP.lines().find_map(|l| l.strip_prefix("MimeType=")).map(|m| m.split(';').filter(|t| !t.is_empty()).collect()).unwrap_or_default()
 }
 
 /// `command -v name`: the first executable `name` on `$PATH`.
@@ -338,11 +378,12 @@ impl App {
         let cmds = s.commands();
         let integrate = Integration {
             name: s.cfg.cli.name.clone(),
-            link: s.cfg.cli.path && s.installable(),
-            shadow: s.shadow && s.taken().is_some(),
+            link: s.cfg.cli.path && s.installable() && !s.in_bin(),
+            by_name: s.cfg.cli.path && s.installable(),
+            add_path: s.cfg.cli.path && s.installable() && s.adds_path(),
             env: s.cfg.cli.editor_env,
             git: s.cfg.cli.git,
-            default_app: s.cfg.cli.default_app,
+            default_app: s.cfg.cli.default_app && !s.mac,
             rc: s.rc_file(),
         };
         let mac = s.mac;
@@ -416,7 +457,9 @@ fn leader_in(src: &str) -> Option<char> {
 struct Integration {
     name: String,
     link: bool,
-    shadow: bool,
+    /// `$EDITOR` and git name the command, not the binary's full path.
+    by_name: bool,
+    add_path: bool,
     env: bool,
     git: bool,
     default_app: bool,
@@ -428,11 +471,12 @@ impl Integration {
         let Ok(exe) = std::env::current_exe() else { return };
         let home = dirs::home_dir().unwrap_or_default();
         let expand = |p: &str| PathBuf::from(p.replacen('~', &home.to_string_lossy(), 1));
-        let bin = if cfg!(target_os = "macos") { PathBuf::from("/usr/local/bin") } else { home.join(".local/bin") };
-        let cmd_ref = if self.link { self.name.clone() } else { exe.display().to_string() };
-        if self.link {
+        let bin = home.join(".local/bin");
+        let cmd_ref = if self.by_name { self.name.clone() } else { exe.display().to_string() };
+        let dest = bin.join(&self.name);
+        // Never remove the binary itself: the link would then point at itself.
+        if self.link && dest.canonicalize().ok() != exe.canonicalize().ok() {
             let _ = std::fs::create_dir_all(&bin);
-            let dest = bin.join(&self.name);
             let _ = std::fs::remove_file(&dest);
             #[cfg(unix)]
             let _ = std::os::unix::fs::symlink(&exe, &dest);
@@ -447,7 +491,7 @@ impl Integration {
                 }
             }
         };
-        if self.shadow {
+        if self.add_path {
             append(format!("export PATH=\"{}:$PATH\"", bin.display()));
         }
         if self.env {
@@ -456,15 +500,60 @@ impl Integration {
         if self.git {
             let _ = std::process::Command::new("git").args(["config", "--global", "core.editor", &format!("{cmd_ref} --wait")]).status();
         }
-        if self.default_app && !cfg!(target_os = "macos") {
-            let _ = std::process::Command::new("xdg-mime").args(["default", "editor.desktop", "text/plain"]).status();
+        if self.default_app {
+            // A launcher may not have ~/.local/bin on its PATH, so the entry names the binary in full.
+            let apps = home.join(".local/share/applications");
+            let icons = home.join(".local/share/icons/hicolor/scalable/apps");
+            let _ = std::fs::create_dir_all(&apps);
+            let _ = std::fs::create_dir_all(&icons);
+            let _ = std::fs::write(icons.join("editor.svg"), ICON);
+            let _ = std::fs::write(apps.join("editor.desktop"), desktop_entry(&exe));
+            let _ = std::process::Command::new("xdg-mime").arg("default").arg("editor.desktop").args(mime_types()).status();
         }
     }
+}
+
+/// The desktop entry with `Exec` set to this binary.
+fn desktop_entry(exe: &std::path::Path) -> String {
+    let exe = exe.display().to_string().replace('\\', "\\\\").replace('"', "\\\"");
+    DESKTOP.replace("Exec=editor %F", &format!("Exec=\"{exe}\" %F"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_desktop_entry_names_this_binary_and_every_file_type() {
+        let entry = desktop_entry(std::path::Path::new("/home/dev/.local/bin/editor"));
+        assert!(entry.contains("Exec=\"/home/dev/.local/bin/editor\" %F"), "{entry}");
+        let types = mime_types();
+        assert!(types.contains(&"text/plain") && types.contains(&"text/x-rust") && types.contains(&"text/markdown"), "{types:?}");
+    }
+
+    #[test]
+    fn the_terminal_step_shows_what_it_runs() {
+        let mut s = Setup::new(None);
+        s.mac = false;
+        s.bin_on_path = false;
+        s.cfg.cli.default_app = true;
+        let cmds = s.commands().join("\n");
+        assert!(cmds.contains("mkdir -p ~/.local/bin && ln -sf"), "{cmds}");
+        assert!(cmds.contains("export PATH=\"$HOME/.local/bin:$PATH\""), "a folder off $PATH is added: {cmds}");
+        assert!(cmds.contains("xdg-mime default editor.desktop text/plain text/x-rust"), "{cmds}");
+        s.bin_on_path = true;
+        assert!(!s.commands().join("\n").contains("export PATH"), "{cmds}");
+        s.mac = true;
+        assert!(!s.commands().join("\n").contains("xdg-mime"), "macOS has no default-app step");
+        s.step = 4;
+        assert!(!s.choices().contains(&Choice::Toggle("default")), "and no default-app choice");
+
+        // Installed as the README says: the binary is the command already, so no link replaces it.
+        s.exe = dirs::home_dir().map(|h| h.join(".local/bin/editor"));
+        let cmds = s.commands().join("\n");
+        assert!(!cmds.contains("ln -sf"), "{cmds}");
+        assert!(cmds.contains("export EDITOR=\"editor --wait\""), "{cmds}");
+    }
 
     #[test]
     fn leaders_parse_from_lua_and_vimscript() {
