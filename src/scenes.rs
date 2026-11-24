@@ -39,6 +39,16 @@ fn sample(app: &mut App) {
     let cwd = std::env::current_dir().unwrap_or_default();
     let root = if cwd.join("src/editor.rs").is_file() { cwd } else { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")) };
     app.ed.root = root.clone();
+    // `EDITOR_SCENE_THEME=gruvbox` renders the scene in that built-in theme, for screenshots.
+    if let Ok(id) = std::env::var("EDITOR_SCENE_THEME") {
+        let light = crate::theme::builtin(&id).light;
+        app.cfg.theme.mode = if light { "light" } else { "dark" }.into();
+        if light {
+            app.cfg.theme.light = id;
+        } else {
+            app.cfg.theme.dark = id;
+        }
+    }
     app.files = crate::services::index::walk(&root);
     app.tree.index = crate::app::tree::TreeIndex::build(&app.files);
     app.tree.open.insert("src".into());
@@ -224,7 +234,10 @@ fn proposal(app: &mut App) {
     let new = old
         .replace("    pub yank: Reg,\n", "    pub yank: Reg,\n    /// The last small delete, `-`.\n    pub small: Reg,\n")
         .replace("pub fn get(&self, name: Option<char>)", "pub fn get(&self, name: Option<char>) -> Option<&Reg>")
-        .replace("pub fn get(&self, name: Option<char>) -> Option<&Reg> -> Option<&Reg>", "pub fn read(&self, name: Option<char>) -> Option<&Reg>");
+        .replace(
+            "pub fn get(&self, name: Option<char>) -> Option<&Reg> -> Option<&Reg>",
+            "pub fn read(&self, name: Option<char>) -> Option<&Reg>",
+        );
     let path = app.ed.buf().path.clone().unwrap_or_default();
     let version = app.ed.buf().version();
     let p = crate::app::review::Proposal::new(path, "add a small-delete register".into(), &old, new, version);

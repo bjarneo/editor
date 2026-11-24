@@ -9,7 +9,7 @@
 A modal code editor in Rust, built on [Rune](https://github.com/anomalyco/rune). It opens
 before you finish the thought, it keeps your Neovim muscle memory, and it stays out of the way.
 
-[Install](#install) · [Keys](docs/keymaps.md) · [Configuration](docs/configuration.md) ·
+[Website](https://bjarneo.github.io/editor/) · [Install](#install) · [Keys](docs/keymaps.md) · [Configuration](docs/configuration.md) ·
 [AI agents](docs/agents.md) · [How it works](docs/architecture.md) ·
 [Performance](docs/performance.md) ·
 [Promo video](docs/media/editor-promo.mp4)

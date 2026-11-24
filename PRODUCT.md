@@ -44,9 +44,12 @@ messages. Used alongside git checkouts and AI agents that change files underneat
 - LSP: diagnostics, definition, references, hover, completion, rename, code actions.
 - Fuzzy finder, ripgrep project search, file tree with git status, leader menu.
 - Crash recovery, undo across restarts, reload on outside changes, atomic saves.
+- AI agents drive a running editor over `editor ctl` and `editor mcp`: read the selection and
+  unsaved buffers, point at lines, propose changes shown as a diff (`y` accepts). No AI runs
+  inside the editor.
 - 16 themes; follows the Omarchy desktop theme live.
 - Release binaries: Linux x86-64 and ARM64, macOS Apple silicon and Intel (unsigned on
-  macOS). Install also through `cargo install --git`.
+  macOS). The promo site is at https://bjarneo.github.io/editor/. Install also through `cargo install --git`.
 - Not built: tree-sitter highlighting, `gr`, `gF`.
 
 ## Brand Commitments
