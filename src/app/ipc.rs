@@ -48,6 +48,23 @@ fn read_pos(v: &Value) -> Result<Pos, String> {
 }
 
 impl App {
+    /// Runs the requests a scene scripted (`App::scripted`) whose time has come, as if an agent
+    /// sent them over the socket. Scenes use it to record agent demos headless, where no
+    /// socket runs. True when one ran.
+    pub fn play_scripted(&mut self, clock: f64, tx: &mut Tx) -> bool {
+        let mut ran = false;
+        while self.scripted.first().is_some_and(|(t, _)| *t <= clock) {
+            let (_, req) = self.scripted.remove(0);
+            let (reply, _answer) = std::sync::mpsc::channel();
+            self.ipc(req, reply, tx);
+            ran = true;
+        }
+        if let Some((t, _)) = self.scripted.first() {
+            tx.wake_after(std::time::Duration::from_secs_f64((t - clock).max(0.0)));
+        }
+        ran
+    }
+
     pub fn ipc(&mut self, req: Request, reply: Sender<Response>, tx: &mut Tx) {
         let id = req.id;
         let a = &req.args;

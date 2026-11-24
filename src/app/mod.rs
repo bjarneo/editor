@@ -153,6 +153,8 @@ pub struct App {
     pub window: session::WindowFrame,
     /// `open --wait` requests held until their buffer closes.
     pub waiters: Vec<ipc::Waiter>,
+    /// Agent requests a scene plays at set times, for headless demos (`ipc::play_scripted`).
+    pub scripted: Vec<(f64, crate::ipc::Request)>,
     /// Polls so far, counted for startup timing only.
     pub polls: u32,
     /// Lines an agent pointed at, with its note.
@@ -252,6 +254,7 @@ impl App {
             window: session::WindowFrame::default(),
             waiters: Vec::new(),
             polls: 0,
+            scripted: Vec::new(),
             note: None,
             outside: Vec::new(),
             proposals: Vec::new(),
@@ -292,6 +295,7 @@ impl App {
             changed = true;
             self.event(e, tx);
         }
+        changed |= self.play_scripted(clock, tx);
         if self.ask_signs(clock, tx) {
             changed = true;
         }

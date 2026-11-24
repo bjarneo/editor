@@ -31,6 +31,8 @@ pub const SCENES: &[Scene] = &[
     ("actions", actions),
     ("promo-multi", promo_multi),
     ("proposal", proposal),
+    ("agent", agent),
+    ("promo-mouse", promo_mouse),
 ];
 
 fn sample(app: &mut App) {
@@ -242,4 +244,37 @@ fn proposal(app: &mut App) {
     let version = app.ed.buf().version();
     let p = crate::app::review::Proposal::new(path, "add a small-delete register".into(), &old, new, version);
     app.proposals.push(p);
+}
+
+/// An agent at work: requests arrive at set times, as `editor ctl` sends them. The file that
+/// `EDITOR_SCENE_AGENT` names holds them as `[[seconds, {"cmd": …, "args": {…}}], …]`. Without
+/// it, the agent points at a struct and then proposes a change to it.
+fn agent(app: &mut App) {
+    sample(app);
+    app.tree.show = false;
+    let script = std::env::var("EDITOR_SCENE_AGENT").ok().and_then(|p| std::fs::read_to_string(p).ok());
+    let steps: Vec<(f64, serde_json::Value)> = match script.and_then(|s| serde_json::from_str(&s).ok()) {
+        Some(steps) => steps,
+        None => vec![
+            (
+                1.0,
+                serde_json::json!({"cmd": "reveal", "args": {"path": "src/editor.rs", "line": 222, "end_line": 228, "note": "this struct holds every register"}}),
+            ),
+            (3.0, serde_json::json!({"cmd": "message", "args": {"text": "agent: done"}})),
+        ],
+    };
+    app.scripted = steps
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, (t, v))| {
+            let req = crate::ipc::Request { id: i as u64 + 1, cmd: v["cmd"].as_str()?.to_string(), args: v["args"].clone() };
+            Some((t, req))
+        })
+        .collect();
+}
+
+/// The editor with every mouse feature on, right-click menus included, for showing the mouse.
+fn promo_mouse(app: &mut App) {
+    sample(app);
+    app.cfg.mouse.right_click = true;
 }
