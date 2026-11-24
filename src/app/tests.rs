@@ -671,3 +671,28 @@ fn every_palette_command_does_what_it_says() {
         assert!(tested.contains(id), "\"{label}\" ({id}) shows in the palette but this test does not run it");
     }
 }
+
+/// A drag near the bottom keeps the text under the pointer still. Scrolloff used to scroll at
+/// every move there, so the selection ran away to the end of the file.
+#[test]
+fn a_drag_near_the_bottom_selects_what_is_under_the_pointer() {
+    let src: String = (1..=300).map(|i| format!("line {i}\n")).collect();
+    let mut rt = run(rust_app(&src));
+    let [x, y, _, h] = rt.state.m.text;
+    let (cw, rh, gutter) = (rt.state.m.cw, rt.state.m.row_h, rt.state.m.gutter);
+    let row = (h / rh).floor() - 3.0;
+    let py = y + row * rh + rh / 2.0;
+    let px = x + gutter + cw / 2.0;
+    rt.pointer_move(px, py);
+    rt.pointer_down(px, py);
+    rt.frame(1.0 / 60.0);
+    let top = rt.state.ed.doc().view.top;
+    for i in 1..=60 {
+        rt.pointer_move(px + i as f32 * cw / 10.0, py);
+        rt.frame(1.0 / 60.0);
+    }
+    rt.pointer_up(px + 6.0 * cw, py);
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.ed.doc().view.top, top, "the text held still under the pointer");
+    assert_eq!(rt.state.ed.cursor().line, top + row as usize, "the cursor is on the row under the pointer");
+}

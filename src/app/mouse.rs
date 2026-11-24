@@ -126,6 +126,9 @@ impl App {
                     return;
                 }
                 let Some(from) = self.drag_from else { return };
+                // The pointer picks the line, so the text under it must hold still: scrolloff
+                // would scroll at every move near an edge and run the selection away.
+                let top = self.ed.doc().view.top;
                 if d.data >= 3.0 {
                     self.select_lines(from.line, pos.line);
                 } else if pos != from {
@@ -134,6 +137,7 @@ impl App {
                     }
                     self.select_range_inclusive(from, pos);
                 }
+                self.ed.doc_mut().view.top = top;
                 // Dragging past the top or bottom edge scrolls.
                 if d.y < 0.0 {
                     self.ed.scroll_by(-1);
