@@ -77,7 +77,9 @@ pub fn start(root: PathBuf, out: Out) -> Sender<Job> {
 }
 
 fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("git").arg("-C").arg(root).args(args).output().ok()?;
+    // `--no-optional-locks`: `git status` would otherwise take the index lock to refresh it, and
+    // a commit the user runs at that moment fails with "index.lock: File exists".
+    let out = Command::new("git").arg("--no-optional-locks").arg("-C").arg(root).args(args).output().ok()?;
     out.status.success().then_some(out.stdout)
 }
 
