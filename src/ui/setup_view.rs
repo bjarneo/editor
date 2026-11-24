@@ -517,12 +517,14 @@ fn step_shell(s: &Setup, p: &Palette, st: &Style, focus: Option<Choice>) -> El {
         integ = integ.child(toggle(Choice::Toggle(k), &label, &sub, s.toggle_on(k), focus == Some(Choice::Toggle(k)), p, st));
     }
     let cmds = s.commands();
-    let mut runs = widgets::titled("what runs", p.fg2, st.small, p).grow(1.0).min_w(360.0).pt(16.0).pb(14.0).px(16.0).gap(4.0);
+    let mut runs = widgets::titled("what runs", p.fg2, st.small, p).grow(1.0).shrink().min_w(360.0).pt(16.0).pb(14.0).px(16.0).gap(4.0);
     if cmds.is_empty() {
         runs = runs.child(text("nothing; editor stays inside its window").font(st.small).color(p.fg2));
     }
     for cmd in cmds {
-        runs = runs.child(row().child(text("$ ").font(st.small).color(p.fg3)).child(text(cmd).font(st.small).color(p.fg).wrap_anywhere()));
+        // A long command wraps inside the panel instead of running past its border.
+        let line = text(cmd).font(st.small).color(p.fg).wrap_anywhere().grow(1.0).min_w(0.0);
+        runs = runs.child(row().w_full().items_start().child(text("$ ").font(st.small).color(p.fg3)).child(line));
     }
     c.child(row().gap(16.0).flex_wrap().items_start().child(integ).child(runs))
 }
