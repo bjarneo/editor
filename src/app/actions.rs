@@ -231,7 +231,23 @@ impl App {
         let on = !matches!(v, "false" | "0" | "off" | "no");
         match k {
             "keymap" | "keys.map" => self.cfg.keys.map = if v == "classic" { "classic".into() } else { "neovim".into() },
-            "theme" => self.cfg.theme.mode = crate::theme::Source::parse(v).id().into(),
+            // A mode (`light`, `dark`, `system`, `omarchy`), or a built-in theme by id.
+            "theme" => match v {
+                "light" | "dark" | "system" | "omarchy" => self.cfg.theme.mode = v.into(),
+                id if crate::theme::name(id) != id => {
+                    let light = crate::theme::builtin(id).light;
+                    self.cfg.theme.mode = if light { "light" } else { "dark" }.into();
+                    if light {
+                        self.cfg.theme.light = id.into();
+                    } else {
+                        self.cfg.theme.dark = id.into();
+                    }
+                }
+                _ => {
+                    self.ed.error(format!("E474: Invalid argument: theme={v}. Use light, dark, system, omarchy or a theme id"));
+                    return;
+                }
+            },
             "wrap" => self.cfg.editor.wrap = on,
             "number" | "nu" | "numbers" => {
                 self.cfg.editor.numbers = if !on {

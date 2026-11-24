@@ -57,6 +57,10 @@ struct Edit {
 /// Edits that undo and redo as one step, with the cursor before and after them.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Txn {
+    /// Names the text state this step leads to, for telling whether the buffer is saved.
+    /// Histories stored before ids existed load with 0 and get an id then.
+    #[serde(default)]
+    id: u64,
     edits: Vec<Edit>,
     before: Pos,
     after: Pos,
@@ -76,6 +80,11 @@ pub struct Buffer {
     pub line_ending: LineEnding,
     version: u64,
     saved_version: u64,
+    /// The undo step the file on disk matches (`state`), when known. Undo back to it, and the
+    /// buffer is clean again.
+    saved_state: Option<u64>,
+    /// The id the next undo step gets.
+    next_id: u64,
     undo: Vec<Txn>,
     redo: Vec<Txn>,
     open: Option<Txn>,
@@ -102,6 +111,8 @@ impl Buffer {
             line_ending,
             version: 0,
             saved_version: 0,
+            saved_state: Some(0),
+            next_id: 1,
             undo: Vec::new(),
             redo: Vec::new(),
             open: None,
@@ -138,6 +149,7 @@ impl Buffer {
         }
         self.line_ending = ending;
         self.saved_version = self.version;
+        self.saved_state = Some(self.state());
         self.disk_mtime = fs::metadata(&path).and_then(|m| m.modified()).ok();
         Ok(())
     }
@@ -198,6 +210,8 @@ impl Buffer {
     /// Records that `version` is what the file on disk holds now.
     pub fn mark_saved(&mut self, version: u64, mtime: Option<std::time::SystemTime>) {
         self.saved_version = version;
+        // Edits made while the file was written leave the saved state unknown.
+        self.saved_state = (version == self.version && self.state() != u64::MAX).then(|| self.state());
         self.disk_mtime = mtime;
     }
 
@@ -214,6 +228,7 @@ impl Buffer {
         }
         self.line_ending = ending;
         self.saved_version = self.version;
+        self.saved_state = Some(self.state());
         self.disk_mtime = mtime;
     }
 
@@ -225,8 +240,18 @@ impl Buffer {
         self.version
     }
 
+    /// The buffer differs from the file: an edit since the save, unless undo or redo came back
+    /// to the saved step.
     pub fn is_dirty(&self) -> bool {
-        self.version != self.saved_version
+        self.version != self.saved_version && self.saved_state != Some(self.state())
+    }
+
+    /// The undo step the text is at now: 0 before any, `u64::MAX` inside an unfinished step.
+    fn state(&self) -> u64 {
+        if self.open.as_ref().is_some_and(|t| !t.edits.is_empty()) {
+            return u64::MAX;
+        }
+        self.undo.last().map_or(0, |t| t.id)
     }
 
     pub fn len_chars(&self) -> usize {
@@ -340,7 +365,7 @@ impl Buffer {
     /// Starts a transaction, if none is open, with the cursor before it.
     pub fn begin(&mut self, cursor: Pos) {
         if self.open.is_none() {
-            self.open = Some(Txn { edits: Vec::new(), before: cursor, after: cursor });
+            self.open = Some(Txn { id: 0, edits: Vec::new(), before: cursor, after: cursor });
         }
     }
 
@@ -350,12 +375,18 @@ impl Buffer {
             && !t.edits.is_empty()
         {
             t.after = cursor;
+            t.id = self.take_id();
             self.undo.push(t);
             if self.undo.len() > UNDO_LIMIT {
                 self.undo.remove(0);
             }
             self.redo.clear();
         }
+    }
+
+    fn take_id(&mut self) -> u64 {
+        self.next_id += 1;
+        self.next_id - 1
     }
 
     pub fn in_txn(&self) -> bool {
@@ -374,7 +405,8 @@ impl Buffer {
         if let Some(t) = &mut self.open {
             t.edits.push(e);
         } else {
-            self.undo.push(Txn { edits: vec![e], before: Pos::default(), after: Pos::default() });
+            let id = self.take_id();
+            self.undo.push(Txn { id, edits: vec![e], before: Pos::default(), after: Pos::default() });
             self.redo.clear();
         }
     }
@@ -513,6 +545,14 @@ impl Buffer {
         }
         self.undo = h.undo;
         self.redo = h.redo;
+        // Steps from before ids existed get one now, and new steps never reuse one.
+        self.next_id = self.undo.iter().chain(&self.redo).map(|t| t.id).max().unwrap_or(0) + 1;
+        for t in self.undo.iter_mut().chain(self.redo.iter_mut()).filter(|t| t.id == 0) {
+            t.id = self.next_id;
+            self.next_id += 1;
+        }
+        // The text is the file's: the restored top step is the saved one.
+        self.saved_state = Some(self.state());
         true
     }
 
@@ -592,7 +632,31 @@ mod tests {
         b.insert(Pos::new(0, 1), "y");
         assert!(b.is_dirty());
         b.undo();
-        assert!(b.is_dirty(), "the version moves on; an undo is a change too");
+        assert!(!b.is_dirty(), "undo back to the saved text is clean, as in Vim");
+        b.redo();
+        assert!(b.is_dirty());
+        b.mark_saved(b.version(), None);
+        assert!(!b.is_dirty());
+        b.undo();
+        assert!(b.is_dirty(), "undo past the save is a change");
+        b.redo();
+        assert!(!b.is_dirty(), "redo back to the save is clean");
+        b.undo();
+        b.insert(Pos::new(0, 0), "z");
+        b.undo();
+        assert!(b.is_dirty(), "a new edit drops the redo, so the saved text is gone");
+    }
+
+    #[test]
+    fn a_step_made_in_parts_is_dirty_until_undone() {
+        let mut b = Buffer::from_str("x");
+        b.begin(Pos::default());
+        b.insert(Pos::new(0, 0), "a");
+        assert!(b.is_dirty(), "an open step is a change");
+        b.commit(Pos::new(0, 1));
+        assert!(b.is_dirty());
+        b.undo();
+        assert!(!b.is_dirty());
     }
 
     #[test]

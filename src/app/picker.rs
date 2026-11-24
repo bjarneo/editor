@@ -296,11 +296,13 @@ impl App {
             }
             "clear-outside" => {
                 self.clear_outside(None);
+                self.ed.message("change marks cleared");
                 return;
             }
             "proposal" => {
-                if let Some(p) = self.proposals.first().map(|p| p.path.clone()) {
-                    self.open_path(p, None);
+                match self.proposals.first().map(|p| p.path.clone()) {
+                    Some(p) => self.open_path(p, None),
+                    None => self.ed.message("no proposals"),
                 }
                 return;
             }

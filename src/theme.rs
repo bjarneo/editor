@@ -383,15 +383,6 @@ impl Source {
             _ => Source::Dark,
         }
     }
-
-    pub fn id(self) -> &'static str {
-        match self {
-            Source::Light => "light",
-            Source::Dark => "dark",
-            Source::System => "system",
-            Source::Omarchy => "omarchy",
-        }
-    }
 }
 
 /// The palette to paint with now, and the id of the theme it came from.

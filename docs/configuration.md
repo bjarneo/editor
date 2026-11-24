@@ -103,4 +103,5 @@ Nearer files win, and they win over config.toml.
 ## Options for this run
 
 `:set` changes an option until you quit: `:set wrap`, `:set nonumber`, `:set tabstop=2`,
-`:set keymap=classic`, `:set theme=light`. Settings and `:w` keep a change.
+`:set keymap=classic`, `:set theme=light`, `:set theme=gruvbox`. `theme` takes a mode or a theme id
+from the list above. Settings and `:w` keep a change.

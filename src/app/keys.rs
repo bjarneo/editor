@@ -76,7 +76,7 @@ pub const LEADER_AGENT: &[(char, &str, bool)] =
 pub const LEADER_GIT: &[(char, &str, bool)] =
     &[('n', "next change", false), ('p', "previous change", false), ('s', "status in tree", false)];
 pub const LEADER_LSP: &[(char, &str, bool)] =
-    &[('d', "definition", false), ('r', "references", false), ('h', "hover", false), ('n', "rename", false)];
+    &[('d', "definition", false), ('r', "references", false), ('h', "hover", false), ('n', "rename", false), ('a', "code actions", false)];
 
 impl App {
     pub fn key(&mut self, mut k: KeyInput, tx: &mut Tx) {
@@ -257,15 +257,18 @@ impl App {
         if !self.ed.has_doc() {
             return;
         }
-        let Some(path) = self.ed.buf().path.clone() else { return };
-        let Some(m) = self.meta.get(&path) else { return };
+        let Some(m) = self.ed.buf().path.as_ref().and_then(|p| self.meta.get(p)) else {
+            self.ed.message("no changes against HEAD");
+            return;
+        };
         let line = self.ed.cursor().line;
-        let mut lines: Vec<usize> = m.signs.iter().map(|s| s.line).collect();
-        lines.dedup();
+        // A change is a run of lines with signs: jump between the first lines of runs.
+        let lines: std::collections::BTreeSet<usize> = m.signs.iter().map(|s| s.line).collect();
+        let starts: Vec<usize> = lines.iter().copied().filter(|&l| l == 0 || !lines.contains(&(l - 1))).collect();
         let target = if forward {
-            lines.iter().find(|&&l| l > line + 1).or(lines.first())
+            starts.iter().find(|&&l| l > line).or(starts.first())
         } else {
-            lines.iter().rev().find(|&&l| l + 1 < line).or(lines.last())
+            starts.iter().rev().find(|&&l| l < line).or(starts.last())
         };
         match target.copied() {
             Some(l) => self.ed.set_cursor(editor::buffer::Pos::new(l, 0)),
