@@ -4,7 +4,7 @@ use rune::tok::TextStyle;
 use rune::{Color, Cursor, El, Span, col, el, row, spacer, text};
 
 use super::{font, widgets};
-use crate::app::keys::{LEADER, LEADER_GIT, LEADER_LSP};
+use crate::app::keys::{LEADER, LEADER_AGENT, LEADER_GIT, LEADER_LSP};
 use crate::app::menu::{ITEMS, Menu};
 use crate::app::{App, Overlay, PickKind, Picker};
 use crate::highlight;
@@ -21,6 +21,7 @@ pub fn leader(app: &App, p: &Palette, group: Option<char>) -> El {
     let (title, items) = match group {
         Some('g') => ("SPC g", LEADER_GIT),
         Some('l') => ("SPC l", LEADER_LSP),
+        Some('a') => ("SPC a", LEADER_AGENT),
         _ => (if app.ed.vim.leader == ' ' { "SPC" } else { "\\" }, LEADER),
     };
     let mut grid = row().w_full().flex_wrap().gap(0.0);

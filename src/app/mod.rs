@@ -2,11 +2,13 @@
 //! setup, git, the project index). `poll` applies what the background workers send.
 
 pub mod actions;
+pub mod ipc;
 pub mod keys;
 pub mod lsp;
 pub mod menu;
 pub mod mouse;
 pub mod picker;
+pub mod review;
 pub mod session;
 pub mod settings;
 pub mod setup;
@@ -54,6 +56,8 @@ pub struct DocMeta {
     pub lsp_sent: u64,
     /// The language server's diagnostics.
     pub diags: Vec<crate::services::lsp::Diag>,
+    /// Lines changed on disk from outside the editor, since it last saved this file.
+    pub outside: Vec<usize>,
     /// The file changed on disk while the buffer had unsaved edits.
     pub conflict: bool,
 }
@@ -145,6 +149,14 @@ pub struct App {
     pub title: String,
     /// The window's size in points and its position in desktop pixels, kept for next launch.
     pub window: session::WindowFrame,
+    /// `open --wait` requests held until their buffer closes.
+    pub waiters: Vec<ipc::Waiter>,
+    /// Lines an agent pointed at, with its note.
+    pub note: Option<ipc::Note>,
+    /// Changed blocks of files that changed on disk, newest first.
+    pub outside: Vec<review::Hunk>,
+    /// Changes agents proposed, waiting for y or n.
+    pub proposals: Vec<review::Proposal>,
 }
 
 impl App {
@@ -230,12 +242,16 @@ impl App {
             locations_title: "References",
             title: String::new(),
             window: session::WindowFrame::default(),
+            waiters: Vec::new(),
+            note: None,
+            outside: Vec::new(),
+            proposals: Vec::new(),
         }
     }
 
     /// Starts the workers and opens the files asked for. Runs once, with the window's waker.
     pub fn setup(&mut self, waker: rune::Waker) {
-        let svc = Services::start(self.ed.root.clone(), waker);
+        let svc = Services::start(self.ed.root.clone(), waker, self.cfg.ipc.enabled);
         for (path, at) in self.to_open.drain(..) {
             svc.open(path, at);
         }
@@ -259,6 +275,8 @@ impl App {
         }
         self.write_swaps(clock, tx);
         self.lsp_sync(clock, tx);
+        self.check_waiters();
+        self.refresh_proposals();
         let title = match (&self.screen, self.on_settings, self.ed.has_doc()) {
             (Screen::Setup(_), _, _) => "setup — editor".to_string(),
             (_, true, _) => "settings — editor".into(),
@@ -294,7 +312,14 @@ impl App {
         }
     }
 
-    fn event(&mut self, e: Event, tx: &mut Tx) {
+    pub fn event(&mut self, e: Event, tx: &mut Tx) {
+        self.handle_event(e, tx);
+        // Events arrive as app updates while the window draws nothing, so `open --wait` must
+        // see a buffer open and close here, not only in `poll`.
+        self.check_waiters();
+    }
+
+    fn handle_event(&mut self, e: Event, tx: &mut Tx) {
         match e {
             Event::Opened { path, buf, at, ec, recovered, background } => match buf {
                 Ok(buf) => {
@@ -308,6 +333,29 @@ impl App {
                         self.ed.docs[i].buf.recover(&text);
                         let name = self.rel(&path);
                         self.ed.error(format!("E325: recovered unsaved edits to \"{name}\" from a crash. :w keeps them, :e! drops them"));
+                    }
+                }
+                Err(e) => {
+                    // An `open --wait` on a file that failed to open gets the error, not a hang.
+                    let (failed, keep): (Vec<_>, Vec<_>) =
+                        std::mem::take(&mut self.waiters).into_iter().partition(|w| w.path == path && !w.seen);
+                    self.waiters = keep;
+                    for w in failed {
+                        let _ = w.reply.send(crate::ipc::Response::err(w.id, e.clone()));
+                    }
+                    self.ed.error(e)
+                }
+            },
+            Event::Ipc { req, reply } => self.ipc(req, reply, tx),
+            Event::Filtered { path, version, first, last, result } => self.filtered(path, version, first, last, result),
+            Event::ShellDone { cmd, result } => match result {
+                Ok((code, out, err)) => {
+                    let text = if out.trim().is_empty() { err } else { out };
+                    let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+                    if code == 0 {
+                        self.ed.message(format!(":!{cmd}  {last}"));
+                    } else {
+                        self.ed.error(format!(":!{cmd} exited {code}: {last}"));
                     }
                 }
                 Err(e) => self.ed.error(e),
@@ -434,6 +482,7 @@ impl App {
                     if let Some(svc) = &self.svc {
                         svc.lsp(crate::services::lsp::Job::Saved { path: path.clone() });
                         svc.unswap(path.clone());
+                        self.outside.retain(|h| h.path != path);
                         if self.ed.docs[i].buf.version() == version {
                             svc.keep_history(path.clone(), self.ed.docs[i].buf.history());
                         }
@@ -481,10 +530,14 @@ impl App {
             return;
         }
         let cursor = self.ed.docs[i].view.cursor;
+        let old = self.ed.docs[i].buf.text();
         self.ed.docs[i].buf.replace_from_disk(&text, cursor, mtime);
         let doc = &mut self.ed.docs[i];
         doc.view.cursor = doc.buf.clamp(cursor, false);
-        self.ed.message(format!("\"{name}\" reloaded from disk"));
+        let new = doc.buf.text();
+        let (added, removed) = self.record_outside(&path, &old, &new);
+        let lead = if self.is_vim() { "SPC a l" } else { "the palette" };
+        self.ed.message(format!("\"{name}\" changed outside: +{added} -{removed} lines. {lead} lists changes, u undoes the reload"));
     }
 
     /// Files changed on disk. Open ones are read back by the file worker (a reload compares
@@ -617,7 +670,54 @@ impl App {
     /// Writes the session and quits.
     pub fn quit(&mut self, tx: &mut Tx) {
         session::save(self);
+        self.release_waiters();
+        if let Some(svc) = &self.svc {
+            svc.close_socket();
+        }
         tx.quit();
+    }
+
+    /// A `:{range}!cmd` filter finished: replace the lines with its output, as one undo step.
+    fn filtered(&mut self, path: PathBuf, version: u64, first: usize, last: usize, result: Result<(i32, String, String), String>) {
+        let (code, out, err) = match result {
+            Ok(r) => r,
+            Err(e) => return self.ed.error(e),
+        };
+        if code != 0 {
+            let why = err.lines().next().unwrap_or("").to_string();
+            return self.ed.error(format!("the filter exited {code}, nothing changed: {why}"));
+        }
+        let Some(i) = self.doc_index(&path) else { return };
+        let doc = &mut self.ed.docs[i];
+        if doc.buf.version() != version {
+            return self.ed.error("the buffer changed while the filter ran, nothing changed");
+        }
+        let last = last.min(doc.buf.last_line());
+        let a = doc.buf.idx(editor::buffer::Pos::new(first, 0));
+        let b = if last < doc.buf.last_line() { doc.buf.idx(editor::buffer::Pos::new(last + 1, 0)) } else { doc.buf.len_chars() };
+        let ends_open = b == doc.buf.len_chars() && !doc.buf.slice(a, b).ends_with('\n');
+        let text = if ends_open { out.strip_suffix('\n').unwrap_or(&out).to_string() } else { out };
+        let at = doc.view.cursor;
+        doc.buf.begin(at);
+        doc.buf.replace(a, b, &text);
+        doc.buf.commit(editor::buffer::Pos::new(first, 0));
+        doc.view.cursor = doc.buf.clamp(editor::buffer::Pos::new(first, 0), false);
+        let n = text.lines().count();
+        self.edited();
+        self.ed.message(format!("{} lines filtered into {n}", last - first + 1));
+    }
+
+    /// Diffs proposals made for files that were not open yet, once they are.
+    fn refresh_proposals(&mut self) {
+        for i in 0..self.proposals.len() {
+            if self.proposals[i].base != u64::MAX {
+                continue;
+            }
+            if let Some(d) = self.doc_index(&self.proposals[i].path.clone()) {
+                let (old, v) = (self.ed.docs[d].buf.text(), self.ed.docs[d].buf.version());
+                self.proposals[i].rediff(&old, v);
+            }
+        }
     }
 
     pub fn is_vim(&self) -> bool {

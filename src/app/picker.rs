@@ -71,6 +71,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("Theme: follow the OS", "theme=system"),
     ("Theme: follow Omarchy", "theme=omarchy"),
     ("Toggle soft wrap", "wrap"),
+    ("Agent: list outside changes", "outside"),
+    ("Agent: clear change marks", "clear-outside"),
+    ("Agent: show the next proposal", "proposal"),
     ("Quit", "quit"),
 ];
 
@@ -287,6 +290,20 @@ impl App {
             "next" => Action::NextBuffer,
             "prev" => Action::PrevBuffer,
             "wrap" => Action::SetOption("wrap".into(), (!self.cfg.editor.wrap).to_string()),
+            "outside" => {
+                self.show_outside();
+                return;
+            }
+            "clear-outside" => {
+                self.clear_outside(None);
+                return;
+            }
+            "proposal" => {
+                if let Some(p) = self.proposals.first().map(|p| p.path.clone()) {
+                    self.open_path(p, None);
+                }
+                return;
+            }
             "quit" => Action::QuitAll { force: false },
             other => match other.split_once('=') {
                 Some((k, v)) => Action::SetOption(k.into(), v.into()),

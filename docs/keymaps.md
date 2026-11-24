@@ -29,6 +29,10 @@ Press the leader alone to see these keys in a popup.
 | `SPC l h` | Hover |
 | `SPC l n` | Rename symbol |
 | `SPC l a` | Code actions |
+| `SPC a l` | Changes made on disk from outside the editor |
+| `SPC a c` | Clear the outside-change marks |
+| `SPC a p` | Show the next agent proposal |
+| `SPC a n` | Clear the agent's note |
 
 ### Motions
 
@@ -134,6 +138,8 @@ extend it, and `o` swaps its ends. `d c y > < ~ u U J gc r p` and `:` act on it.
 | `:set opt`, `:set noopt`, `:set opt=val` | Options: `keymap`, `wrap`, `number`, `relativenumber`, `tabstop`, `expandtab`, `scrolloff`, `list`, `cursorline`, `colorcolumn`, `mouse`, `theme` |
 | `:noh` | Hide search highlights |
 | `:marks` `:delmarks` | List, delete marks |
+| `:'<,'>!cmd` | Filter the lines through a shell command |
+| `:!cmd` | Run a shell command in the project folder |
 | `:Rename name` | Rename the symbol under the cursor (LSP) |
 | `:CodeAction` | Code actions (LSP) |
 | `:Settings` `:Find` `:Grep` | Settings, the file finder, project search |
@@ -183,6 +189,7 @@ with one line per cursor puts one line at each.
 | Keys | Where | Does |
 | --- | --- | --- |
 | `j` `k` `l` `h`, `Enter`, `Esc` | File tree | Move, open, close a folder, leave |
+| `y`, `n`, `]c` `[c`, `j` `k` | An agent's proposal | Accept, reject, next and previous change, scroll |
 | `Ctrl n` `Ctrl p`, arrows, `Tab` | Pickers | Move |
 | `Ctrl w` `Ctrl u` | Pickers | Delete a word, clear the query |
 | `j` `k`, `h` `l`, `1`–`5`, `Tab` | Settings | Move, change, pick a section |

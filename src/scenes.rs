@@ -30,6 +30,7 @@ pub const SCENES: &[Scene] = &[
     ("rename", rename),
     ("actions", actions),
     ("promo-multi", promo_multi),
+    ("proposal", proposal),
 ];
 
 fn sample(app: &mut App) {
@@ -214,4 +215,18 @@ fn promo_multi(app: &mut App) {
     app.ed.active = app.ed.docs.len() - 1;
     app.ed.set_cursor(Pos::new(2, 8));
     app.ed.doc_mut().view.top = 0;
+}
+
+/// An agent's proposed change, as `editor ctl propose` shows it.
+fn proposal(app: &mut App) {
+    sample(app);
+    let old = app.ed.buf().text();
+    let new = old
+        .replace("    pub yank: Reg,\n", "    pub yank: Reg,\n    /// The last small delete, `-`.\n    pub small: Reg,\n")
+        .replace("pub fn get(&self, name: Option<char>)", "pub fn get(&self, name: Option<char>) -> Option<&Reg>")
+        .replace("pub fn get(&self, name: Option<char>) -> Option<&Reg> -> Option<&Reg>", "pub fn read(&self, name: Option<char>) -> Option<&Reg>");
+    let path = app.ed.buf().path.clone().unwrap_or_default();
+    let version = app.ed.buf().version();
+    let p = crate::app::review::Proposal::new(path, "add a small-delete register".into(), &old, new, version);
+    app.proposals.push(p);
 }

@@ -67,6 +67,20 @@ fn run(ed: &mut Editor, line: &str, out: &mut Vec<Action>) -> Res {
     let r = range.unwrap_or((cur_line, cur_line));
     let whole = (0, if ed.has_doc() { ed.buf().last_line() } else { 0 });
     match name {
+        // `:!cmd` runs a command; `:{range}!cmd` filters the range's lines through it.
+        "!" => {
+            let cmd = args.trim();
+            if cmd.is_empty() {
+                return Err("E471: Argument required".into());
+            }
+            match range {
+                Some((a, b)) => {
+                    need_doc(ed)?;
+                    out.push(Action::Filter { first: a.min(b), last: a.max(b), cmd: cmd.to_string() });
+                }
+                None => out.push(Action::Shell(cmd.to_string())),
+            }
+        }
         "" => {
             need_doc(ed)?;
             if let Some((_, b)) = range {

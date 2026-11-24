@@ -183,3 +183,11 @@ fn at_colon_repeats_the_last_ex_command() {
     feed(&mut e, "@:");
     assert_eq!(text(&e), "c\n");
 }
+
+#[test]
+fn bang_filters_a_range_or_runs_a_command() {
+    let mut e = ed("a\nb\nc\n");
+    assert_eq!(run_ex(&mut e, "1,2!sort -r"), vec![Action::Filter { first: 0, last: 1, cmd: "sort -r".into() }]);
+    assert_eq!(run_ex(&mut e, "!cargo fmt"), vec![Action::Shell("cargo fmt".into())]);
+    assert!(matches!(run_ex(&mut e, "!").as_slice(), [Action::Error(_)]));
+}

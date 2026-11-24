@@ -67,7 +67,11 @@ pub const LEADER: &[(char, &str, bool)] = &[
     (',', "settings", false),
     ('g', "+git", true),
     ('l', "+lsp", true),
+    ('a', "+agent", true),
 ];
+
+pub const LEADER_AGENT: &[(char, &str, bool)] =
+    &[('l', "outside changes", false), ('c', "clear change marks", false), ('p', "next proposal", false), ('n', "clear the note", false)];
 
 pub const LEADER_GIT: &[(char, &str, bool)] =
     &[('n', "next change", false), ('p', "previous change", false), ('s', "status in tree", false)];
@@ -98,6 +102,13 @@ impl App {
                 return;
             }
             Overlay::None => {}
+        }
+        // An agent's proposal takes y, n and scrolling while it shows.
+        if self.ed.mode != Mode::Command && self.proposal_key(k) {
+            return;
+        }
+        if self.note.is_some() && k.code == KeyCode::Esc && self.ed.mode != Mode::Insert {
+            self.note = None;
         }
         if self.ed.mode == Mode::Command {
             let actions = editor::vim::cmdline_key(&mut self.ed, k);
@@ -192,7 +203,7 @@ impl App {
             (None, 'q') => vec![Action::CloseBuffer],
             (None, 'd') => vec![Action::Diagnostics],
             (None, ',') => vec![Action::Settings],
-            (None, 'g') | (None, 'l') => {
+            (None, 'g') | (None, 'l') | (None, 'a') => {
                 self.overlay = Overlay::Leader(Some(c));
                 return;
             }
@@ -215,6 +226,26 @@ impl App {
                 return;
             }
             (Some('l'), 'a') => vec![Action::CodeActions],
+            (Some('a'), 'l') => {
+                self.show_outside();
+                return;
+            }
+            (Some('a'), 'c') => {
+                self.clear_outside(None);
+                self.ed.message("change marks cleared");
+                return;
+            }
+            (Some('a'), 'p') => {
+                match self.proposals.first().map(|p| p.path.clone()) {
+                    Some(p) => self.open_path(p, None),
+                    None => self.ed.message("no proposals"),
+                }
+                return;
+            }
+            (Some('a'), 'n') => {
+                self.note = None;
+                return;
+            }
             (Some('l'), 'h') => vec![Action::Hover],
             _ => Vec::new(),
         };

@@ -4,6 +4,7 @@
 pub mod editor_view;
 pub mod font;
 pub mod overlays;
+pub mod review;
 pub mod settings_view;
 pub mod setup_view;
 pub mod text;

@@ -18,6 +18,7 @@ pub struct Config {
     pub keys: KeysCfg,
     pub mouse: MouseCfg,
     pub cli: CliCfg,
+    pub ipc: IpcCfg,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -203,6 +204,21 @@ impl Default for CliCfg {
 /// Writes an `f32` as the short decimal it was set to: `1.7`, not `1.7000000476837158`.
 fn two_places<S: serde::Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_f64((*v as f64 * 100.0).round() / 100.0)
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IpcCfg {
+    /// Serve the control socket that `editor ctl`, `editor mcp` and agents use.
+    pub enabled: bool,
+    /// Let `edit` and `command` requests change buffers. `propose` works either way.
+    pub allow_edits: bool,
+}
+
+impl Default for IpcCfg {
+    fn default() -> Self {
+        IpcCfg { enabled: true, allow_edits: true }
+    }
 }
 
 /// `~/.config/editor`.

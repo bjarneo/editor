@@ -7,6 +7,7 @@ pub mod git;
 pub mod grep;
 pub mod index;
 pub mod io;
+pub mod ipc;
 pub mod lsp;
 pub mod watch;
 
@@ -117,6 +118,25 @@ pub enum Event {
     CodeActions {
         titles: Vec<String>,
     },
+    /// A request on the control socket, and where its reply goes.
+    Ipc {
+        req: crate::ipc::Request,
+        reply: Sender<crate::ipc::Response>,
+    },
+    /// A `:{range}!cmd` filter finished: its output replaces lines `first..=last` of `path`
+    /// when the buffer is still at `version`.
+    Filtered {
+        path: PathBuf,
+        version: u64,
+        first: usize,
+        last: usize,
+        result: Result<(i32, String, String), String>,
+    },
+    /// A `:!cmd` command finished.
+    ShellDone {
+        cmd: String,
+        result: Result<(i32, String, String), String>,
+    },
 }
 
 /// Handles to the workers. Built in `AppSpec::setup`, once the window's waker exists.
@@ -128,12 +148,18 @@ pub struct Services {
     index: Sender<Vec<PathBuf>>,
     watch: Sender<watch::Job>,
     lsp: Sender<lsp::Job>,
+    out: Out,
+    root: PathBuf,
+    /// The control socket this editor serves, when it serves one.
+    pub socket: Option<PathBuf>,
 }
 
 impl Services {
-    pub fn start(root: PathBuf, waker: Waker) -> Services {
+    /// Starts every worker. With `ipc`, also serves the project's control socket.
+    pub fn start(root: PathBuf, waker: Waker, ipc: bool) -> Services {
         let (tx, events) = channel();
         let out = Out { tx, waker };
+        let socket = if ipc { ipc::start(&root, out.clone()) } else { None };
         Services {
             events,
             io: io::start(out.clone()),
@@ -141,7 +167,30 @@ impl Services {
             grep: grep::start(root.clone(), out.clone()),
             index: index::start(root.clone(), out.clone()),
             watch: watch::start(root.clone(), out.clone()),
-            lsp: lsp::start(root, out),
+            lsp: lsp::start(root.clone(), out.clone()),
+            out,
+            root,
+            socket,
+        }
+    }
+
+    /// Filters lines `first..=last` of `path` through `cmd`, off the UI thread.
+    pub fn filter(&self, path: PathBuf, version: u64, first: usize, last: usize, cmd: String, input: String) {
+        let out = self.out.clone();
+        ipc::run_shell(cmd, self.root.clone(), Some(input), move |result| out.send(Event::Filtered { path, version, first, last, result }));
+    }
+
+    /// Runs `cmd` in the project folder, off the UI thread.
+    pub fn shell(&self, cmd: String) {
+        let out = self.out.clone();
+        let c = cmd.clone();
+        ipc::run_shell(cmd, self.root.clone(), None, move |result| out.send(Event::ShellDone { cmd: c, result }));
+    }
+
+    /// Removes the control socket; the process is about to end.
+    pub fn close_socket(&self) {
+        if let Some(p) = &self.socket {
+            let _ = std::fs::remove_file(p);
         }
     }
 
@@ -216,7 +265,14 @@ pub struct Out {
 }
 
 impl Out {
+    /// Hands `e` to the UI thread. With a window, as an app update, which runs even while the
+    /// window draws nothing (on another workspace, covered), so agents and reloads never wait
+    /// for the user to look. Without one (tests), through the channel `App::poll` drains.
     pub fn send(&self, e: Event) {
+        if let Some(h) = crate::app::ipc::HANDLE.get() {
+            h.update(move |s, tx| s.event(e, tx));
+            return;
+        }
         if self.tx.send(e).is_ok() {
             (self.waker)();
         }

@@ -10,7 +10,8 @@ A modal code editor in Rust, built on [Rune](https://github.com/anomalyco/rune).
 before you finish the thought, it keeps your Neovim muscle memory, and it stays out of the way.
 
 [Install](#install) · [Keys](docs/keymaps.md) · [Configuration](docs/configuration.md) ·
-[How it works](docs/architecture.md) · [Performance](docs/performance.md) ·
+[AI agents](docs/agents.md) · [How it works](docs/architecture.md) ·
+[Performance](docs/performance.md) ·
 [Promo video](docs/media/editor-promo.mp4)
 
 <img src="docs/media/demo.gif" width="880" alt="Search, change a word, jump between functions and select one with vaf">
@@ -31,8 +32,11 @@ that, and against speed.
   code actions, from whatever servers you have installed.
 - **Find anything.** A fuzzy file finder, project search through ripgrep, a file tree with git
   status, and a leader menu that shows every key.
-- **Safe.** Crash recovery, undo that survives a restart, a clean reload when a git checkout or
-  an AI agent changes a file under you, and atomic saves.
+- **Works with your AI agent.** No AI inside. Instead, Claude Code, Codex or any CLI agent sees
+  what you are looking at and drives the editor over `editor mcp` or `editor ctl`: it reads
+  your selection and unsaved text, points you at code, and proposes changes you accept with `y`.
+- **Safe.** Crash recovery, undo that survives a restart, a clean reload with changed lines
+  marked when a git checkout or an agent changes a file under you, and atomic saves.
 - **Yours.** 16 themes, or follow your [Omarchy](https://omarchy.org) desktop theme live. Any
   monospace font. Settings is a buffer that writes `config.toml`.
 
@@ -166,6 +170,21 @@ editor starts the server for a file when one is installed: `rust-analyzer`, `gop
 `pyright-langserver`, `typescript-language-server`, `clangd`, `lua-language-server` or `zls`.
 Servers run on their own thread, so they never block typing. See [docs/lsp.md](docs/lsp.md).
 
+## AI agents
+
+```sh
+claude mcp add editor -- editor mcp          # Claude Code: the editor as tools
+editor ctl state                             # any agent or script: what you are looking at
+editor ctl reveal src/main.rs:10-14 --note "this is the bug"
+sed 's/foo/bar/' src/main.rs | editor ctl propose src/main.rs --label "rename foo"
+```
+
+The agent reads the active file, selection, unsaved buffers and LSP diagnostics, points you at
+lines, and proposes changes that open as a diff: `y` accepts, `n` rejects. Changes it writes to
+disk reload with their lines marked, and `SPC a l` lists them. `editor --wait` makes editor a
+good `$EDITOR` for agents and git. [docs/agents.md](docs/agents.md) has setup for Claude Code,
+Codex and opencode, and the protocol.
+
 ## How it works
 
 The editing core is a library with no window code: the buffer, modes, both keymaps and
@@ -188,7 +207,7 @@ Measured on a release build, Linux, x86-64:
 ## Develop
 
 ```sh
-cargo test                                            # 180 tests: core, tree-sitter, app
+cargo test                                            # core, tree-sitter, app and IPC tests
 target/debug/editor --snap out.png --scene finder     # render a scene, no window
 ```
 

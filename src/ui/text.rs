@@ -132,6 +132,9 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
     if !app.ed.has_doc() {
         return area.child(empty_state(app, p));
     }
+    if let Some(i) = app.proposal_here() {
+        return super::review::diff_view(app, p, &app.proposals[i], area);
+    }
     let doc = app.ed.doc();
     let buf = &doc.buf;
     let path = buf.path.as_deref();
@@ -160,6 +163,8 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
     };
     let signs = meta.map(|m| m.signs.as_slice()).unwrap_or(&[]);
     let diags = meta.map(|m| m.diags.as_slice()).unwrap_or(&[]);
+    let outside = meta.map(|m| m.outside.as_slice()).unwrap_or(&[]);
+    let note = app.note.as_ref().filter(|n| Some(n.path.as_path()) == path);
     let mut cursor_at: Option<(f32, f32)> = None;
     let replacing = vim && editor::vim::replacing(&app.ed.vim);
     let cursor_shape = if replacing {
@@ -262,7 +267,9 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
             // Gutter.
             let sign = if pi == 0 { signs.iter().find(|s| s.line == line) } else { None };
             let diag = if pi == 0 { diags.iter().filter(|d| d.line == line).min_by_key(|d| d.severity) } else { None };
+            let changed_outside = pi == 0 && outside.binary_search(&line).is_ok();
             let (sign_text, sign_color) = match (diag, sign.map(|s| s.kind)) {
+                (None, _) if changed_outside => ("┃", p.vis),
                 (Some(d), _) if d.severity <= 1 => ("E", p.err),
                 (Some(d), _) if d.severity == 2 => ("W", p.warn),
                 (Some(_), _) => ("I", p.fg2),
@@ -291,7 +298,14 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
                     p.fg3
                 })));
             }
+            let noted = note.is_some_and(|n| line >= n.first && line <= n.last);
+            if noted && code_fill == Color::TRANSPARENT {
+                row_fill = p.vis.alpha(0.12);
+            }
             let mut code_box = row().grow(1.0).min_w(0.0).h(rh).fill(code_fill).child(code);
+            if let Some(n) = note.filter(|n| n.first == line && pi == 0 && !n.text.is_empty()) {
+                code_box = code_box.child(text(format!("    ◆ {}", n.text)).font(style).color(p.vis).truncate());
+            }
             if let Some(d) = diag.filter(|d| d.severity <= 2 && pi + 1 == pieces.len()) {
                 let msg: String = d.message.chars().take(160).collect();
                 code_box =

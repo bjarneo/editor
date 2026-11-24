@@ -311,6 +311,17 @@ fn status_line(app: &App, p: &Palette, ui: TextStyle) -> El {
             line = line.child(text(format!("W {warns}")).font(small).color(p.warn).px(12.0));
         }
     }
+    if !app.proposals.is_empty() {
+        line = line.child(
+            text(format!("⇄ {} proposal{}", app.proposals.len(), if app.proposals.len() == 1 { "" } else { "s" }))
+                .font(small)
+                .color(p.vis)
+                .px(12.0),
+        );
+    }
+    if !app.outside.is_empty() {
+        line = line.child(text(format!("Δ {}", app.outside.len())).font(small).color(p.vis).px(12.0));
+    }
     if !lang.is_empty() {
         let enc = if app.ed.has_doc() { app.ed.buf().line_ending.label() } else { "unix" };
         line = line

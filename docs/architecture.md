@@ -23,9 +23,10 @@ flowchart LR
         RG[ripgrep]
         FW[File watcher]
         L[LSP manager]
+        S[Control socket<br/>editor ctl, editor mcp]
     end
     A -->|job| IO & IX & G & RG & L
-    IO & IX & G & RG & FW & L -->|Event| P
+    IO & IX & G & RG & FW & L & S -->|Event| P
 ```
 
 ## The core: `src/lib.rs`
@@ -100,8 +101,9 @@ maps a point to a line and column from that width, with tabs and wide characters
 
 ### Workers
 
-Workers never touch app state. Each gets jobs on a channel and sends `Event`s back, then wakes
-the window. `App::poll` drains the events before the next frame.
+Workers never touch app state. Each gets jobs on a channel and sends `Event`s back as Rune app
+updates, which run on the UI thread even while the window draws nothing: on another workspace,
+covered, or minimized. An agent's request or a file reload never waits for you to look.
 
 | Worker | Does |
 | --- | --- |
@@ -111,6 +113,7 @@ the window. `App::poll` drains the events before the next frame.
 | `editor-grep` | Runs `rg --vimgrep`, or a plain walk when ripgrep is missing. |
 | `editor-watch` | Watches the project, open files outside it, and Omarchy's theme folder. |
 | `editor-lsp` | Starts language servers, keeps documents in step, and turns answers into events. |
+| `editor-ipc` | Serves the project's control socket for `editor ctl`, `editor mcp` and agents. See [agents.md](agents.md). |
 
 A save shows the pattern. The UI thread trims the text as one undo step and takes its bytes.
 The file worker writes them to a temporary file and renames it over the old one. The `Saved`

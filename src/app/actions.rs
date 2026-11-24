@@ -30,6 +30,13 @@ impl App {
                 Action::OpenAt(path, pos) => self.open_path(path, Some(pos)),
                 Action::Rename(name) => self.rename(name),
                 Action::CodeActions => self.code_actions(),
+                Action::Filter { first, last, cmd } => self.filter(first, last, cmd),
+                Action::Shell(cmd) => {
+                    self.ed.message(format!(":!{cmd}  running"));
+                    if let Some(svc) = &self.svc {
+                        svc.shell(cmd);
+                    }
+                }
                 Action::Reload => self.reload_active(),
                 Action::FindFile => self.open_picker(PickKind::Files),
                 Action::GrepProject => self.open_picker(PickKind::Grep),
@@ -249,6 +256,30 @@ impl App {
             }
         }
         self.config_changed();
+    }
+
+    /// Sends lines `first..=last` through `cmd`; the output replaces them when it arrives.
+    fn filter(&mut self, first: usize, last: usize, cmd: String) {
+        if !self.ed.has_doc() {
+            return;
+        }
+        let buf = self.ed.buf();
+        let Some(path) = buf.path.clone() else {
+            self.ed.error("E32: No file name");
+            return;
+        };
+        let last = last.min(buf.last_line());
+        let a = buf.idx(editor::buffer::Pos::new(first, 0));
+        let b = if last < buf.last_line() { buf.idx(editor::buffer::Pos::new(last + 1, 0)) } else { buf.len_chars() };
+        let mut input = buf.slice(a, b);
+        if !input.ends_with('\n') {
+            input.push('\n');
+        }
+        let version = buf.version();
+        self.ed.message(format!(":{},{}!{cmd}  running", first + 1, last + 1));
+        if let Some(svc) = &self.svc {
+            svc.filter(path, version, first, last, cmd, input);
+        }
     }
 
     /// Closes tab `i` from the mouse: the close button or a middle-click. A tab with unsaved

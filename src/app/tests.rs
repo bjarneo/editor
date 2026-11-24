@@ -308,3 +308,92 @@ fn a_middle_click_closes_a_clean_tab() {
     rt.frame(1.0 / 60.0);
     assert_eq!(rt.state.ed.docs.len(), 1);
 }
+
+fn ask(rt: &mut Runtime<App>, cmd: &str, args: serde_json::Value) -> crate::ipc::Response {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let req = crate::ipc::Request { id: 7, cmd: cmd.into(), args };
+    rt.update(move |s: &mut App, t| s.ipc(req, tx, t));
+    rt.frame(1.0 / 60.0);
+    rx.try_recv().expect("an answer")
+}
+
+#[test]
+fn agents_read_state_and_unsaved_text_through_the_socket_api() {
+    let mut rt = run(app("neovim"));
+    typ(&mut rt, "jx");
+    let st = ask(&mut rt, "state", serde_json::json!({}));
+    assert!(st.ok);
+    assert_eq!(st.result["active"]["line"], 2);
+    assert_eq!(st.result["active"]["dirty"], true);
+    let read = ask(&mut rt, "read", serde_json::json!({ "start_line": 2, "end_line": 2 }));
+    assert_eq!(read.result["text"], "   let a = 1;\n", "the unsaved edit, not the disk copy");
+    let bad = ask(&mut rt, "nope", serde_json::json!({}));
+    assert!(!bad.ok && bad.error.unwrap().contains("unknown command"));
+}
+
+#[test]
+fn an_agent_edit_is_one_undo_step_and_can_be_turned_off() {
+    let mut rt = run(app("neovim"));
+    let new = SRC.replace("let b = 2;", "let b = 20;");
+    let r = ask(&mut rt, "edit", serde_json::json!({ "text": new, "label": "bump b" }));
+    assert!(r.ok, "{:?}", r.error);
+    assert!(text(&rt).contains("let b = 20;"));
+    typ(&mut rt, "u");
+    assert_eq!(text(&rt), SRC);
+    rt.update(|s: &mut App, _| s.cfg.ipc.allow_edits = false);
+    let r = ask(&mut rt, "edit", serde_json::json!({ "text": "x" }));
+    assert!(!r.ok);
+    assert_eq!(text(&rt), SRC);
+}
+
+#[test]
+fn a_proposal_shows_until_y_accepts_or_n_rejects() {
+    let mut rt = run(app("neovim"));
+    let new = SRC.replace("println!", "eprintln!");
+    let r = ask(&mut rt, "propose", serde_json::json!({ "text": new, "label": "log to stderr" }));
+    assert!(r.ok);
+    assert_eq!(r.result["added"], 1);
+    assert!(rt.state.proposal_here().is_some());
+    typ(&mut rt, "j");
+    assert_eq!(text(&rt), SRC, "j scrolls the diff, it does not edit");
+    typ(&mut rt, "y");
+    assert!(text(&rt).contains("eprintln!"));
+    assert!(rt.state.proposals.is_empty());
+    typ(&mut rt, "u");
+    let r = ask(&mut rt, "propose", serde_json::json!({ "text": new }));
+    assert!(r.ok);
+    typ(&mut rt, "n");
+    assert_eq!(text(&rt), SRC);
+}
+
+#[test]
+fn reveal_marks_lines_and_esc_clears_them() {
+    let mut rt = run(app("neovim"));
+    let r = ask(&mut rt, "reveal", serde_json::json!({ "line": 3, "end_line": 4, "note": "these add up" }));
+    assert!(r.ok);
+    let n = rt.state.note.clone().expect("a note");
+    assert_eq!((n.first, n.last), (2, 3));
+    assert!(rt.state.ed.msg.as_ref().is_some_and(|m| m.text.contains("these add up")));
+    press(&mut rt, Key::Escape, Mods::default());
+    assert!(rt.state.note.is_none());
+}
+
+#[test]
+fn open_wait_answers_when_the_buffer_closes() {
+    let mut rt = run(app("neovim"));
+    let path = rt.state.ed.buf().path.clone().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let req = crate::ipc::Request { id: 9, cmd: "open".into(), args: serde_json::json!({ "path": path, "wait": true }) };
+    rt.update(move |s: &mut App, t| s.ipc(req, tx, t));
+    rt.frame(1.0 / 60.0);
+    rt.update(|s: &mut App, t| {
+        s.poll(0.1, t);
+    });
+    assert!(rx.try_recv().is_err(), "held while the buffer is open");
+    typ(&mut rt, ":q\n");
+    rt.update(|s: &mut App, t| {
+        s.poll(0.2, t);
+    });
+    let r = rx.try_recv().expect("answered after :q");
+    assert_eq!(r.result["closed"], true);
+}

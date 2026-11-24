@@ -134,6 +134,15 @@ pub enum Action {
     Rename(String),
     /// List the language server's code actions at the cursor (`:CodeAction`).
     CodeActions,
+    /// Replace lines `first..=last` with the output of a shell command run on them
+    /// (`:'<,'>!sort`). Zero-based, inclusive.
+    Filter {
+        first: usize,
+        last: usize,
+        cmd: String,
+    },
+    /// Run a shell command and show its output (`:!cargo fmt`).
+    Shell(String),
     /// Reload the active buffer from disk (`:e!`).
     Reload,
     FindFile,

@@ -102,6 +102,7 @@ impl App {
         self.locations_title = match kind {
             "references" => "References",
             "definition" => "Definitions",
+            "changes" => "Outside Changes",
             _ => "Diagnostics",
         };
         self.open_picker(PickKind::Locations);
