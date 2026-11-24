@@ -49,6 +49,12 @@ const keys = [
 // Revision history, newest first. A row shows once its release is the latest or older.
 const revisions = [
   {
+    rev: "0.3.2",
+    date: "2026-11-24",
+    changes:
+      "<code>F1</code> lists every key, with search. The mouse wheel scrolls the file tree. Setup no longer replaces a binary in <code>~/.local/bin</code> with a link to itself.",
+  },
+  {
     rev: "0.3.1",
     date: "2026-11-24",
     changes:
@@ -419,7 +425,7 @@ xattr -d com.apple.quarantine editor-*/editor
           </div>
           <div>
             <h3>With Cargo</h3>
-            <p>Builds from source. Linux needs the Wayland and xkbcommon development packages.</p>
+            <p>Builds from source. Linux needs <code>pkg-config</code> and the Wayland and xkbcommon development packages.</p>
             <pre><code>{install}</code></pre>
           </div>
         </div>
