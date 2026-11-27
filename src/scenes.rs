@@ -18,11 +18,15 @@ pub const SCENES: &[Scene] = &[
     ("keys", keys),
     ("keys-search", keys_search),
     ("tree-scrolled", tree_scrolled),
+    ("mac", mac),
+    ("mac-no-tree", mac_no_tree),
     ("classic", classic),
     ("light", light),
     ("omarchy", omarchy),
     ("settings", settings),
     ("settings-font", settings_font),
+    ("settings-setup", settings_setup),
+    ("setup-again", setup_again),
     ("setup", setup),
     ("setup-look", setup_look),
     ("setup-shell", setup_shell),
@@ -40,6 +44,11 @@ pub const SCENES: &[Scene] = &[
 
 fn sample(app: &mut App) {
     app.screen = Screen::Editor;
+    // A scene shows its own files. The last session's files would open over them when the
+    // workers start, and its folders would show open in the tree.
+    app.to_open.clear();
+    app.restore_active = None;
+    app.tree.open.clear();
     // This repository: the current folder when it is a copy of it, else where it was built.
     let cwd = std::env::current_dir().unwrap_or_default();
     let root = if cwd.join("src/editor.rs").is_file() { cwd } else { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")) };
@@ -136,6 +145,19 @@ fn tree_scrolled(app: &mut App) {
     app.tree.follow = crate::app::tree::Follow::No;
 }
 
+/// The top bar as macOS draws it: the traffic lights at its start, the project path after
+/// them. Add `--chrome` to draw the lights. Without it, a Linux render leaves their room empty.
+fn mac(app: &mut App) {
+    sample(app);
+    app.mac_titlebar = true;
+}
+
+/// The macOS top bar with the tree hidden: the first tab starts after the traffic lights.
+fn mac_no_tree(app: &mut App) {
+    mac(app);
+    app.tree.show = false;
+}
+
 fn classic(app: &mut App) {
     sample(app);
     app.cfg.keys.map = "classic".into();
@@ -163,6 +185,20 @@ fn settings_font(app: &mut App) {
     if let Some(s) = app.settings.as_mut() {
         s.section = crate::app::settings::Section::Font;
     }
+}
+
+/// Settings › setup: the button that runs setup again, and what the terminal step did.
+fn settings_setup(app: &mut App) {
+    settings(app);
+    if let Some(s) = app.settings.as_mut() {
+        s.section = crate::app::settings::Section::Setup;
+    }
+}
+
+/// Setup run again from Settings: the current settings filled in, and a cancel button.
+fn setup_again(app: &mut App) {
+    sample(app);
+    app.run_setup_again();
 }
 
 fn setup(app: &mut App) {

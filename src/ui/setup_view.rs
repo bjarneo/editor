@@ -28,18 +28,19 @@ pub fn view(app: &App, p: &Palette, cx: &mut Cx<App>) -> El {
             .child(text(format!("setup {}/5 · {}", s.step, STEPS[s.step - 1])).font(st.small).color(p.fg2)),
     );
     let page = col().w_full().max_w(900.0).gap(26.0).child(header).child(body);
+    let mut top = row().grow(1.0).min_h(0.0).w_full().justify_center().pt(40.0).px(32.0).clip_rounded(0.0).child(page);
+    // On macOS the window has no titlebar of its own, so the empty band at the top moves it.
+    if super::editor_view::bar(app, cx).drag {
+        top = top.child(el().absolute(0.0, 0.0).w_full().h(super::editor_view::BAR_H).window_drag());
+    }
+    let moves = if s.vim() { "j/k move   enter pick   tab next" } else { "arrows move   enter pick   tab next" };
+    let cancel = if s.again.is_some() && s.step == 1 { "   esc cancel" } else { "" };
     col()
         .w_full()
         .h_full()
-        .child(row().grow(1.0).min_h(0.0).w_full().justify_center().pt(40.0).px(32.0).clip_rounded(0.0).child(page))
+        .child(top)
         .child(status(s, p, &st))
-        .child(
-            row().h(22.0).px(8.0).items_center().child(
-                text(if s.vim() { "j/k move   enter pick   tab next" } else { "arrows move   enter pick   tab next" })
-                    .font(st.small)
-                    .color(p.fg2),
-            ),
-        )
+        .child(row().h(22.0).px(8.0).items_center().child(text(format!("{moves}{cancel}")).font(st.small).color(p.fg2)))
 }
 
 /// The Modes icon: four lines in the mode colours.
@@ -650,12 +651,17 @@ fn status(s: &Setup, p: &Palette, st: &Style) -> El {
             .on_press_tx(move |s: &mut App, tx| {
                 if by == 99 {
                     s.finish_setup(tx);
+                } else if by == -99 {
+                    s.cancel_setup();
                 } else {
                     s.setup_go(by);
                 }
             })
             .child(text(label).font(if go { bold } else { small }).color(if go { p.on } else { p.fg2 }))
     };
+    if s.again.is_some() {
+        line = line.child(btn("cancel", false, -99));
+    }
     if s.step < 5 {
         line = line.child(btn("skip", false, 10));
     }

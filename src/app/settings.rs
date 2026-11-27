@@ -16,6 +16,9 @@ pub enum Section {
     Editor,
     Formatting,
     Keys,
+    Mouse,
+    Agents,
+    Setup,
 }
 
 pub const SECTIONS: &[(Section, &str)] = &[
@@ -23,7 +26,10 @@ pub const SECTIONS: &[(Section, &str)] = &[
     (Section::Font, "font"),
     (Section::Editor, "editor"),
     (Section::Formatting, "formatting"),
-    (Section::Keys, "keys & mouse"),
+    (Section::Keys, "keys"),
+    (Section::Mouse, "mouse"),
+    (Section::Agents, "agents"),
+    (Section::Setup, "setup"),
 ];
 
 /// The fonts Settings offers. Any installed monospace font works in config.toml.
@@ -37,13 +43,26 @@ pub struct Settings {
 }
 
 pub enum Ctl {
-    Seg { opts: Vec<(String, String)>, cur: String },
-    Font { opts: Vec<String>, cur: String },
-    Step { shown: String },
+    Seg {
+        opts: Vec<(String, String)>,
+        cur: String,
+    },
+    Font {
+        opts: Vec<String>,
+        cur: String,
+    },
+    Step {
+        shown: String,
+    },
     Toggle(bool),
     Info(String),
     Chips(Vec<Color>),
-    Themes { opts: Vec<String>, cur: String },
+    Themes {
+        opts: Vec<String>,
+        cur: String,
+    },
+    /// A button that does something now, such as running setup again.
+    Button(&'static str),
 }
 
 pub enum Item {
@@ -167,6 +186,7 @@ pub fn items(section: Section, cfg: &Config, omarchy: Option<&Omarchy>, system_d
                 &[("editor", "same as editor"), ("system", "system sans")],
             ));
             out.push(step("ui.size", "Interface text size", format!("{} pt", fmt_num(cfg.ui.size))));
+            out.push(step("ui.tree_width", "File tree width. Dragging its edge sets it too", format!("{} pt", fmt_num(cfg.ui.tree_width))));
         }
         Section::Editor => {
             out.push(Item::Head("-- display"));
@@ -212,13 +232,37 @@ pub fn items(section: Section, cfg: &Config, omarchy: Option<&Omarchy>, system_d
             out.push(seg("keys.map", "Change any time with :set keymap", &cfg.keys.map, &[("neovim", "neovim"), ("classic", "classic")]));
             out.push(seg("keys.leader", "Neovim keymap only", &cfg.keys.leader, &[("space", "space"), ("backslash", "\\")]));
             out.push(tog("keys.auto_close", "Typing ( also types )", cfg.keys.auto_close));
+            out.push(tog("keys.multi_cursor", "Classic keymap: Alt-click adds a cursor", cfg.keys.multi_cursor));
+        }
+        Section::Mouse => {
             out.push(Item::Head("-- mouse"));
             out.push(tog("mouse.enabled", "Click, drag to select, resize the file tree", cfg.mouse.enabled));
             out.push(tog("mouse.scroll", "The wheel scrolls", cfg.mouse.scroll));
+            out.push(tog("mouse.click", "A click moves the cursor", cfg.mouse.click));
+            out.push(tog("mouse.drag", "A drag selects text", cfg.mouse.drag));
+            out.push(tog("mouse.double_click", "A double-click selects a word", cfg.mouse.double_click));
             out.push(tog("mouse.right_click", "Right-click opens a context menu", cfg.mouse.right_click));
+        }
+        Section::Agents => {
             out.push(Item::Head("-- agents"));
             out.push(tog("ipc.enabled", "Serve editor ctl and editor mcp for agents and scripts (next launch)", cfg.ipc.enabled));
             out.push(tog("ipc.allow_edits", "Agents may edit buffers and run commands. Proposals work either way", cfg.ipc.allow_edits));
+        }
+        Section::Setup => {
+            let on = |b: bool| if b { "on".to_string() } else { "off".to_string() };
+            out.push(Item::Head("-- setup"));
+            out.push(Item::Row {
+                key: "setup.run",
+                desc: "The first-launch steps, with your settings filled in. Changes the terminal options below".into(),
+                ctl: Ctl::Button("run setup"),
+            });
+            out.push(tog("keys.import_nvim", "Neovim keymap: setup reads the leader from ~/.config/nvim", cfg.keys.import_nvim));
+            out.push(Item::Head("-- terminal (set by setup)"));
+            out.push(info("cli.name", "The terminal command", cfg.cli.name.clone()));
+            out.push(info("cli.path", "Link the command into ~/.local/bin", on(cfg.cli.path)));
+            out.push(info("cli.editor_env", "Set $EDITOR and $VISUAL in the shell's rc file", on(cfg.cli.editor_env)));
+            out.push(info("cli.git", "Set git's core.editor", on(cfg.cli.git)));
+            out.push(info("cli.default_app", "Linux: open code and text files on a double-click", on(cfg.cli.default_app)));
         }
     }
     out
@@ -259,6 +303,7 @@ pub fn step_by(cfg: &mut Config, key: &str, dir: f32) {
         "font.letter_spacing" => cfg.font.letter_spacing = clamp(cfg.font.letter_spacing + 0.5 * dir, -1.0, 2.0),
         "ui.size" => cfg.ui.size = clamp(cfg.ui.size + 0.5 * dir, 10.0, 16.0),
         "editor.scrolloff" => cfg.editor.scrolloff = (cfg.editor.scrolloff as f32 + dir).clamp(0.0, 20.0) as u16,
+        "ui.tree_width" => cfg.ui.tree_width = clamp((cfg.ui.tree_width / 20.0).round() * 20.0 + 20.0 * dir, 160.0, 640.0),
         _ => {}
     }
 }
@@ -273,8 +318,13 @@ pub fn toggle(cfg: &mut Config, key: &str) {
         "format.trim_whitespace" => cfg.format.trim_whitespace ^= true,
         "format.final_newline" => cfg.format.final_newline ^= true,
         "keys.auto_close" => cfg.keys.auto_close ^= true,
+        "keys.multi_cursor" => cfg.keys.multi_cursor ^= true,
+        "keys.import_nvim" => cfg.keys.import_nvim ^= true,
         "mouse.enabled" => cfg.mouse.enabled ^= true,
         "mouse.scroll" => cfg.mouse.scroll ^= true,
+        "mouse.click" => cfg.mouse.click ^= true,
+        "mouse.drag" => cfg.mouse.drag ^= true,
+        "mouse.double_click" => cfg.mouse.double_click ^= true,
         "mouse.right_click" => cfg.mouse.right_click ^= true,
         "ipc.enabled" => cfg.ipc.enabled ^= true,
         "ipc.allow_edits" => cfg.ipc.allow_edits ^= true,
@@ -337,12 +387,18 @@ impl App {
             KeyCode::Tab if k.shift => set_section(self, sec_i + SECTIONS.len() - 1),
             KeyCode::Tab | KeyCode::Char('J') => set_section(self, sec_i + 1),
             KeyCode::Char('K') => set_section(self, sec_i + SECTIONS.len() - 1),
-            KeyCode::Char(c @ '1'..='5') => set_section(self, c as usize - '1' as usize),
+            KeyCode::Char(c @ '1'..='9') if (c as usize - '1' as usize) < SECTIONS.len() => set_section(self, c as usize - '1' as usize),
             KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => {
                 let dir: i32 = if matches!(k.code, KeyCode::Char('h') | KeyCode::Left) { -1 } else { 1 };
                 let Some(i) = controls.get(cur) else { return };
                 let Item::Row { key, ctl, .. } = &list[*i] else { return };
                 let key: &'static str = key;
+                if let Ctl::Button(_) = ctl {
+                    if dir > 0 {
+                        self.settings_button(key);
+                    }
+                    return;
+                }
                 match ctl {
                     Ctl::Toggle(_) => toggle(&mut self.cfg, key),
                     Ctl::Step { .. } => step_by(&mut self.cfg, key, dir as f32),
@@ -356,6 +412,15 @@ impl App {
             _ => {
                 let _ = row_key;
             }
+        }
+    }
+}
+
+impl App {
+    /// A press on a button row.
+    pub fn settings_button(&mut self, key: &str) {
+        if key == "setup.run" {
+            self.run_setup_again();
         }
     }
 }
@@ -383,5 +448,60 @@ mod tests {
         assert_eq!(echo(&cfg, "font.size"), "font.size = 24.0");
         pick(&mut cfg, "theme", "omarchy");
         assert_eq!(echo(&cfg, "theme"), "theme.mode = \"omarchy\"");
+    }
+
+    /// Every row of every section, with both theme lists showing.
+    fn every_row(cfg: &Config) -> Vec<(&'static str, Ctl)> {
+        SECTIONS
+            .iter()
+            .flat_map(|(sec, _)| items(*sec, cfg, None, true))
+            .filter_map(|i| match i {
+                Item::Row { key, ctl, .. } => Some((key, ctl)),
+                Item::Head(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_key_in_config_toml_has_a_row_in_settings() {
+        let mut cfg = Config::default();
+        cfg.theme.mode = "system".into();
+        let keys: Vec<&str> = every_row(&cfg).iter().map(|(k, _)| *k).collect();
+        let doc: toml::Table = toml::from_str(&cfg.to_toml()).unwrap();
+        for (section, table) in &doc {
+            for key in table.as_table().expect("a [section]").keys() {
+                let full = format!("{section}.{key}");
+                let row = if full == "theme.mode" { "theme" } else { full.as_str() };
+                assert!(keys.contains(&row), "config.toml has {full}, but Settings has no row for it");
+            }
+        }
+    }
+
+    #[test]
+    fn every_control_in_settings_changes_the_config() {
+        let mut base = Config::default();
+        base.theme.mode = "system".into();
+        for (key, ctl) in every_row(&base) {
+            let mut cfg = base.clone();
+            match ctl {
+                Ctl::Toggle(_) => toggle(&mut cfg, key),
+                Ctl::Step { .. } => {
+                    step_by(&mut cfg, key, 1.0);
+                    if cfg == base {
+                        step_by(&mut cfg, key, -1.0);
+                    }
+                }
+                Ctl::Seg { opts, cur } => {
+                    let other = opts.iter().map(|(v, _)| v).find(|v| **v != cur).unwrap_or_else(|| panic!("{key} has one choice"));
+                    pick(&mut cfg, key, other);
+                }
+                Ctl::Themes { opts, cur } | Ctl::Font { opts, cur } => {
+                    let other = opts.iter().find(|o| **o != cur).unwrap_or_else(|| panic!("{key} has one choice"));
+                    pick(&mut cfg, key, other);
+                }
+                Ctl::Button(_) | Ctl::Info(_) | Ctl::Chips(_) => continue,
+            }
+            assert_ne!(cfg, base, "{key} changed nothing");
+        }
     }
 }

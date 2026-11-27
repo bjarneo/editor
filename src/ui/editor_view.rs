@@ -10,15 +10,43 @@ use crate::app::{App, Overlay};
 use crate::highlight;
 use crate::theme::Palette;
 
+/// The buffer line's height. On macOS it is also the window's titlebar (see `main.rs`).
+pub const BAR_H: f32 = 28.0;
+
+/// Where macOS puts the end of the zoom button in a titlebar `BAR_H` tall: 16 points in,
+/// three 14 point buttons on a 23 point pitch. Only the `mac` scene uses it. A real window
+/// reads the width from AppKit.
+const MAC_LIGHTS: f32 = 16.0 + 2.0 * 23.0 + 14.0;
+
+/// What the window's own titlebar takes of the buffer line.
+#[derive(Clone, Copy)]
+pub struct Bar {
+    /// The width the macOS traffic lights take at the start of the line. 0 in full screen
+    /// and on Linux.
+    pub lead: f32,
+    /// Pressing an empty part of the line moves the window. Only where the app draws the
+    /// titlebar, which is macOS. Linux keeps its own frame.
+    pub drag: bool,
+}
+
+pub fn bar(app: &App, cx: &Cx<App>) -> Bar {
+    if app.mac_titlebar {
+        return Bar { lead: MAC_LIGHTS, drag: true };
+    }
+    let c = cx.chrome_insets();
+    Bar { lead: c.leading, drag: c.height > 0.0 }
+}
+
 pub fn view(app: &App, p: &Palette, cx: &mut Cx<App>) -> El {
     let ui = font::ui(app);
+    let top = bar(app, cx);
     let main = if app.on_settings { settings_view::view(app, p, cx) } else { text_area::text_area(app, p, cx) };
     let mut body = row().grow(1.0).min_h(0.0).w_full();
     if app.tree.show && !app.on_settings {
         body = body.child(tree(app, p, ui));
     }
     body = body.child(main);
-    let mut root = col().w_full().h_full().min_h(0.0).child(buffer_line(app, p, ui)).child(body).child(status_line(app, p, ui));
+    let mut root = col().w_full().h_full().min_h(0.0).child(buffer_line(app, p, ui, top)).child(body).child(status_line(app, p, ui));
     if app.is_vim() || app.ed.mode == Mode::Command || app.ed.msg.is_some() {
         root = root.child(command_line(app, p));
     }
@@ -31,19 +59,27 @@ pub fn view(app: &App, p: &Palette, cx: &mut Cx<App>) -> El {
     root
 }
 
-fn buffer_line(app: &App, p: &Palette, ui: TextStyle) -> El {
-    let mut line = row().h(28.0).w_full().fill(p.bg2).items_center().clip_rounded(0.0);
+fn buffer_line(app: &App, p: &Palette, ui: TextStyle, top: Bar) -> El {
+    let mut line = row().h(BAR_H).w_full().fill(p.bg2).items_center().clip_rounded(0.0);
+    if top.drag {
+        line = line.window_drag();
+    }
     if app.tree.show && !app.on_settings {
+        // The tree's own column, so its edge lines up with the tree's. The project path starts
+        // after the traffic lights.
         let root = crate::app::tilde(&app.ed.root);
         line = line.child(
             row()
                 .w(app.tree.width)
                 .h_full()
                 .items_center()
-                .px(12.0)
+                .pl(top.lead + 12.0)
+                .pr(12.0)
                 .border_sides([0.0, 1.0, 0.0, 0.0], p.bd)
                 .child(text(root).font(ui).color(p.fg2).truncate()),
         );
+    } else if top.lead > 0.0 {
+        line = line.child(el().w(top.lead + 4.0).h_full());
     }
     for (i, d) in app.ed.docs.iter().enumerate() {
         let on = i == app.ed.active && !app.on_settings;

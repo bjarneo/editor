@@ -99,14 +99,22 @@ fn main() {
         config::Loaded::Ok(c) => c.window.opacity < 100,
         _ => false,
     };
-    let app =
-        rune::App::new(spec).window_options(rune::WindowOptions { transparent, position, ..Default::default() }).on_close(|s, _tx| {
-            app::session::save(s);
-            s.release_waiters();
-            if let Some(svc) = &s.svc {
-                svc.close_socket();
-            }
-        });
+    // On macOS the buffer line is the titlebar: the traffic lights sit in it, centred, and its
+    // empty parts move the window. The position is macOS's own for a 28 point bar. Setting it
+    // here also puts the lights in the same place in a headless `--chrome` render on Linux.
+    let lights = (16.0, ((ui::editor_view::BAR_H - rune::Chrome::TRAFFIC_LIGHT) / 2.0).round());
+    let app = rune::App::new(spec)
+        .window_options(rune::WindowOptions { transparent, position, ..Default::default() })
+        .chrome(rune::Chrome { traffic_lights: Some(lights), ..rune::Chrome::DEFAULT });
+    #[cfg(target_os = "macos")]
+    let app = app.titlebar(rune::Titlebar::new(ui::editor_view::BAR_H));
+    let app = app.on_close(|s, _tx| {
+        app::session::save(s);
+        s.release_waiters();
+        if let Some(svc) = &s.svc {
+            svc.close_socket();
+        }
+    });
     let _ = app::ipc::HANDLE.set(app.handle());
     app.run();
 }

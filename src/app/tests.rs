@@ -460,7 +460,7 @@ fn panel_and_popup_keys_from_the_key_reference() {
     }
     typ(&mut rt, "hq");
     assert!(!rt.state.tree.open.contains("src") && !rt.state.tree.focus);
-    // Settings: J, K, Tab, Shift+Tab and 1 to 5 pick a section. j and k move. h, l, Enter and Space change.
+    // Settings: J, K, Tab, Shift+Tab and 1 to 8 pick a section. j and k move. h, l, Enter and Space change.
     typ(&mut rt, ":Settings\nJ");
     let section = |rt: &Runtime<App>| rt.state.settings.as_ref().map(|s| s.section);
     assert_eq!(section(&rt), Some(super::settings::Section::Font));
@@ -563,3 +563,99 @@ fn picking_now(rt: &mut Runtime<App>) -> bool {
 
 #[path = "live_tests.rs"]
 mod live;
+
+/// What a macOS window reports for the buffer line as its titlebar: the traffic lights end
+/// 76 points in, and the bar is 28 points tall. `lead` is 0 in full screen.
+fn mac_insets(rt: &mut Runtime<App>, lead: f32) {
+    let mut c = rune::ChromeInsets::default();
+    c.leading = lead;
+    c.height = crate::ui::editor_view::BAR_H;
+    rt.set_chrome_insets(c);
+    rt.frame(1.0 / 60.0);
+}
+
+fn rect_of_text(rt: &Runtime<App>, text: &str) -> [f32; 4] {
+    rt.elements().into_iter().find(|e| e.text.as_deref() == Some(text)).unwrap_or_else(|| panic!("no {text:?} on screen")).rect
+}
+
+#[test]
+fn the_macos_top_bar_keeps_clear_of_the_traffic_lights_and_moves_the_window() {
+    let mut app = app("neovim");
+    app.tree.show = true;
+    let root = crate::app::tilde(&app.ed.root);
+    let mut rt = run(app);
+    assert_eq!(rect_of_text(&rt, &root)[0], 12.0, "Linux: no traffic lights, the path starts at the edge");
+    rt.pointer_down(200.0, 14.0);
+    rt.pointer_up(200.0, 14.0);
+    assert_eq!(rt.take_titlebar_action(), None, "Linux keeps its own frame, so the bar does not move the window");
+
+    mac_insets(&mut rt, 76.0);
+    let path = rect_of_text(&rt, &root);
+    assert_eq!(path[0], 76.0 + 12.0, "the path starts after the traffic lights");
+    let tab = rt.elements().into_iter().find(|e| e.role == "tab").expect("a tab").rect;
+    assert_eq!(tab[0], rt.state.tree.width, "the tabs still start at the tree's edge");
+    rt.pointer_down(200.0, 14.0);
+    rt.pointer_up(200.0, 14.0);
+    assert_eq!(rt.take_titlebar_action(), Some(rune::TitlebarAction::Drag), "the empty bar moves the window");
+    rt.frame(1.0);
+    rt.pointer_down(tab[0] + 20.0, 14.0);
+    rt.pointer_up(tab[0] + 20.0, 14.0);
+    assert_eq!(rt.take_titlebar_action(), None, "a tab keeps its press");
+
+    rt.state.tree.show = false;
+    rt.frame(1.0 / 60.0);
+    let tab = rt.elements().into_iter().find(|e| e.role == "tab").expect("a tab").rect;
+    assert!(tab[0] >= 76.0, "with the tree hidden, the first tab starts after the traffic lights: {tab:?}");
+
+    mac_insets(&mut rt, 0.0);
+    let tab = rt.elements().into_iter().find(|e| e.role == "tab").expect("a tab").rect;
+    assert_eq!(tab[0], 0.0, "full screen hides the traffic lights, so the tabs take their place");
+}
+
+#[test]
+fn the_macos_setup_screen_moves_the_window_from_its_top_band() {
+    let mut app = app("neovim");
+    app.screen = super::Screen::Setup(Box::new(super::setup::Setup::new(None)));
+    let mut rt = run(app);
+    rt.pointer_down(600.0, 10.0);
+    rt.pointer_up(600.0, 10.0);
+    assert_eq!(rt.take_titlebar_action(), None, "Linux keeps its own frame");
+    mac_insets(&mut rt, 76.0);
+    rt.pointer_down(600.0, 10.0);
+    rt.pointer_up(600.0, 10.0);
+    assert_eq!(rt.take_titlebar_action(), Some(rune::TitlebarAction::Drag));
+}
+
+#[test]
+fn settings_runs_setup_again_with_the_current_settings_and_esc_cancels_it() {
+    let mut app = app("neovim");
+    app.cfg.font.size = 15.0;
+    app.cfg.cli.name = "e".into();
+    let mut rt = run(app);
+    typ(&mut rt, ":Settings\n8");
+    assert_eq!(rt.state.settings.as_ref().map(|s| s.section), Some(super::settings::Section::Setup));
+    // The first row is the button. l, Enter and Space press it.
+    typ(&mut rt, "l");
+    let super::Screen::Setup(s) = &rt.state.screen else { panic!("setup did not open") };
+    assert_eq!((s.step, s.cfg.font.size, s.cfg.cli.name.as_str()), (1, 15.0, "e"), "setup starts with the current settings");
+    // A pick on the look step changes the window at once. Cancel puts it back.
+    let before = rt.state.cfg.theme.mode.clone();
+    press(&mut rt, Key::Tab, Mods::default());
+    press(&mut rt, Key::Tab, Mods::default());
+    let super::Screen::Setup(s) = &rt.state.screen else { panic!("setup closed") };
+    assert_eq!(s.step, 3);
+    typ(&mut rt, "\n");
+    assert_eq!(rt.state.cfg.theme.mode, "light", "the first look is light");
+    typ(&mut rt, "\x1b\x1b\x1b");
+    assert!(matches!(rt.state.screen, super::Screen::Editor), "Esc on the first step cancels");
+    assert_eq!((rt.state.cfg.theme.mode.as_str(), rt.state.cfg.font.size, rt.state.cfg.cli.name.as_str()), (before.as_str(), 15.0, "e"));
+    // The cancel button does the same from any step.
+    typ(&mut rt, "\n");
+    press(&mut rt, Key::Tab, Mods::default());
+    let cancel =
+        rt.elements().into_iter().find(|e| e.role == "button" && e.label.as_deref() == Some("cancel")).expect("a cancel button").rect;
+    rt.pointer_down(cancel[0] + 4.0, cancel[1] + 4.0);
+    rt.pointer_up(cancel[0] + 4.0, cancel[1] + 4.0);
+    rt.frame(1.0 / 60.0);
+    assert!(matches!(rt.state.screen, super::Screen::Editor));
+}

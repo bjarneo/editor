@@ -160,8 +160,8 @@ every key.
 ## Configuration
 
 Settings is a tab. Open it with `:Settings` or `SPC ,` in the Neovim keymap, or with `Ctrl ,`
-in the classic keymap. Change options, and `:w` writes `~/.config/editor/config.toml`. Every
-change applies at once.
+in the classic keymap. It has a row for every option. Change options, and `:w` writes
+`~/.config/editor/config.toml`. Every change applies at once.
 
 ```toml
 [theme]

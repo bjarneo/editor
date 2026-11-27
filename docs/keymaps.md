@@ -1,7 +1,7 @@
 # Keys
 
 editor has two keymaps. Setup asks which one you want. To switch later, run
-`:set keymap=classic` or `:set keymap=neovim`, use Settings › keys & mouse, or pick
+`:set keymap=classic` or `:set keymap=neovim`, use Settings › keys, or pick
 `Keymap: Neovim` or `Keymap: classic` in the command palette.
 
 This file shows each key as you press it. `SPC` is the leader. `Ctrl d` is Control
@@ -685,7 +685,7 @@ Settings as a tab. A change applies at once.
 | `Space` | Change the option forward. Classic keymap |
 | `SPC` | Open the leader menu. Neovim keymap |
 | `Tab` `J`, `⇧ Tab` `K` | Go to the next, previous section |
-| `1` to `5` | Go to a section: `appearance`, `font`, `editor`, `formatting`, `keys & mouse` |
+| `1` to `8` | Go to a section: `appearance`, `font`, `editor`, `formatting`, `keys`, `mouse`, `agents`, `setup` |
 | `:w`, `:q`, `:wq` | Write `config.toml`, close Settings, do both. Neovim keymap |
 | `Ctrl S`, `Ctrl W` | Write `config.toml`, close Settings. Classic keymap |
 | `Ctrl P`, `Ctrl ⇧ P`, `Ctrl ⇧ F`, `Ctrl B`, `Ctrl Tab`, `Ctrl Q` | Work as in the text. Classic keymap |
@@ -702,11 +702,15 @@ The first launch runs setup in five steps.
 | `Enter` `Space` | Pick the choice |
 | `Tab` | Go to the next step |
 | `⇧ Tab` `Esc` | Go to the previous step |
+| `Esc` | Cancel setup on its first step, when it runs again from Settings › setup |
 | Chars, `Backspace` | Type, delete the name of the terminal command, on the name field |
 
 The `skip`, `back` and `next →` buttons on the bottom line do the same with the mouse. On the
 last step, click `open editor →`, or go to the last choice and press `Enter`. The editor then
 writes `config.toml` and opens.
+
+To run setup again, go to Settings › setup and press `run setup →`. Setup starts with your
+current settings. The `cancel` button puts every setting back and runs nothing.
 
 ### Agent proposals
 

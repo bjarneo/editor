@@ -36,6 +36,9 @@ pub struct Setup {
     /// `command -v` answers by name, so each name is looked up once.
     pub on_path: HashMap<String, Option<String>>,
     pub omarchy_name: Option<String>,
+    /// The config before setup ran again from Settings, put back on cancel. `None` on the
+    /// first launch, which has nothing to go back to.
+    pub again: Option<Box<Config>>,
 }
 
 /// One choice on a step, for keys and the view.
@@ -67,6 +70,7 @@ impl Setup {
             exe: std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()),
             on_path: HashMap::new(),
             omarchy_name: omarchy.map(|o| o.name.clone()),
+            again: None,
         }
     }
 
@@ -318,9 +322,33 @@ impl App {
                     self.setup_choose(c, tx);
                 }
             }
+            KeyCode::Esc if s.step == 1 && s.again.is_some() => self.cancel_setup(),
             KeyCode::Esc => self.setup_go(-1),
             _ => {}
         }
+    }
+
+    /// Settings › setup: runs setup again, with the current settings filled in. Finishing
+    /// writes config.toml and runs the terminal steps left on, as on the first launch.
+    pub fn run_setup_again(&mut self) {
+        let mut s = Setup::new(self.omarchy.as_ref());
+        s.cfg = self.cfg.clone();
+        s.again = Some(Box::new(self.cfg.clone()));
+        self.overlay = super::Overlay::None;
+        self.screen = Screen::Setup(Box::new(s));
+    }
+
+    /// Leaves a setup that ran again from Settings. The settings go back to what they were,
+    /// and nothing is written or run.
+    pub fn cancel_setup(&mut self) {
+        let before = match &mut self.screen {
+            Screen::Setup(s) => s.again.take(),
+            Screen::Editor => None,
+        };
+        let Some(before) = before else { return };
+        self.screen = Screen::Editor;
+        self.cfg = *before;
+        self.config_changed();
     }
 
     /// Moves `by` steps; past the last step, the editor opens.

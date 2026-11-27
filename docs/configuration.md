@@ -2,7 +2,8 @@
 
 editor reads `~/.config/editor/config.toml` at startup. The first launch writes it, at the
 end of setup. Settings (`:Settings`) edits it as a tab: changes apply at once, and `:w` writes
-the file. A missing key takes its default, so a file can hold only what you change.
+the file. Settings has a row for every option below. A missing key takes its default, so a file
+can hold only what you change.
 
 ## Every option
 
@@ -54,20 +55,27 @@ multi_cursor = true      # classic keymap: Alt-click adds a cursor
 auto_close = true        # typing ( also types )
 
 [mouse]
-enabled = true
-scroll = true
-click = true
-drag = true
-double_click = true
+enabled = true           # click, drag to select, resize the file tree
+scroll = true            # the wheel scrolls
+click = true             # a click moves the cursor
+drag = true              # a drag selects text
+double_click = true      # a double-click selects a word
 right_click = false      # right-click opens a context menu
 
-[cli]                    # what setup's terminal step did
-name = "editor"
-path = true
-editor_env = true
-git = true
+[cli]                    # what setup's terminal step did. Settings › setup runs it again
+name = "editor"          # the terminal command
+path = true              # link the command into ~/.local/bin
+editor_env = true        # set $EDITOR and $VISUAL in the shell's rc file
+git = true               # set git's core.editor
 default_app = false      # Linux: the default app for the file types in editor.desktop
+
+[ipc]
+enabled = true           # serve editor ctl and editor mcp. Next launch
+allow_edits = true       # agents may edit buffers and run commands. Proposals work either way
 ```
+
+The `[cli]` options record what setup did. A change to them in `config.toml` runs nothing. To
+change the terminal command, go to Settings › setup and press `run setup →`.
 
 ## Themes
 

@@ -169,6 +169,8 @@ pub struct App {
     pub outside: Vec<review::Hunk>,
     /// Changes agents proposed, waiting for y or n.
     pub proposals: Vec<review::Proposal>,
+    /// Scenes only: lay out the top bar as macOS draws it, with the traffic lights in it.
+    pub mac_titlebar: bool,
 }
 
 impl App {
@@ -267,6 +269,7 @@ impl App {
             note: None,
             outside: Vec::new(),
             proposals: Vec::new(),
+            mac_titlebar: false,
         }
     }
 

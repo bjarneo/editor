@@ -117,7 +117,7 @@ off the UI thread. This works with any CLI, AI tools included:
 
 - The socket is `$XDG_RUNTIME_DIR/editor/<project>.sock`, readable by your user only. There is
   no network listener.
-- `ipc.allow_edits = false` in config.toml (Settings › keys & mouse) turns off `edit` and
+- `ipc.allow_edits = false` in config.toml (Settings › agents) turns off `edit` and
   `command`. Proposals still work: nothing changes until you press `y`.
 - `ipc.enabled = false` turns the socket off.
 - Every agent action shows on the command line.

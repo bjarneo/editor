@@ -178,6 +178,17 @@ fn option_row(_app: &App, p: &Palette, ui: TextStyle, key: &'static str, desc: &
             })
             .child(text(if *on { "[x] on " } else { "[ ] off" }).font(ui).color(if *on { p.ins } else { p.fg2 })),
         Ctl::Info(v) => text(v.clone()).font(ui).color(p.fg),
+        Ctl::Button(label) => row()
+            .h(26.0)
+            .px(12.0)
+            .items_center()
+            .radius(4.0)
+            .fill(p.ac)
+            .cursor(Cursor::Pointer)
+            .role("button")
+            .label(*label)
+            .on_press(move |s: &mut App| s.settings_button(key))
+            .child(text(format!("{label} →")).font(TextStyle { weight: 700.0, ..small }).color(p.on)),
         Ctl::Chips(colors) => {
             let mut g = row().gap(4.0);
             for c in colors {
