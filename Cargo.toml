@@ -1,6 +1,6 @@
 [package]
 name = "editor"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 description = "A lightweight modal editor for reading code fast and making quick edits, built on Rune."
 license = "MIT"
