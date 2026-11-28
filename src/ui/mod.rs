@@ -1,13 +1,18 @@
 //! The views. `view` picks the screen: setup on first launch, else the editor (with the
 //! Settings tab when it shows).
 
+pub mod chrome;
 pub mod editor_view;
 pub mod font;
+pub mod icons;
 pub mod overlays;
 pub mod review;
+pub mod scrollbar;
 pub mod settings_view;
 pub mod setup_view;
+pub mod status;
 pub mod text;
+pub mod tree_view;
 pub mod widgets;
 
 use rune::{Cx, El};
@@ -24,8 +29,9 @@ pub fn palette(app: &App, system_dark: bool) -> Palette {
     theme::resolve(theme::Source::parse(&cfg.theme.mode), &cfg.theme.dark, &cfg.theme.light, system_dark, app.omarchy.as_ref()).0
 }
 
-/// Symbols the UI shows later: the unsaved dot, status line marks, the tree and the diff view.
-const WARM_GLYPHS: &str = "● ⇄ ⎇ ┃ ◆ ⋯ … · ▸ ▾ ✓ × Δ ⏎ →";
+/// Symbols the UI shows later in text: agent notes, diagnostics, the diff view, the whitespace
+/// dots and the leader menu. Icons are drawn, so they need no font.
+const WARM_GLYPHS: &str = "◆ ■ ⋯ … · ✓ →";
 
 /// The UI symbols, drawn unseen. The first symbol outside the UI font makes Rune load a
 /// fallback font, in about 12 ms. From the second frame on, this pays that cost before the

@@ -564,8 +564,8 @@ fn picking_now(rt: &mut Runtime<App>) -> bool {
 #[path = "live_tests.rs"]
 mod live;
 
-/// What a macOS window reports for the buffer line as its titlebar: the traffic lights end
-/// 76 points in, and the bar is 28 points tall. `lead` is 0 in full screen.
+/// What a macOS window reports for the tab bar as its titlebar: the traffic lights end
+/// 76 points in, and the bar is `BAR_H` tall. `lead` is 0 in full screen.
 fn mac_insets(rt: &mut Runtime<App>, lead: f32) {
     let mut c = rune::ChromeInsets::default();
     c.leading = lead;
@@ -658,4 +658,26 @@ fn settings_runs_setup_again_with_the_current_settings_and_esc_cancels_it() {
     rt.pointer_up(cancel[0] + 4.0, cancel[1] + 4.0);
     rt.frame(1.0 / 60.0);
     assert!(matches!(rt.state.screen, super::Screen::Editor));
+}
+
+#[test]
+fn a_press_on_the_scrollbar_scrolls_and_keeps_the_cursor_on_screen() {
+    let mut app = app("neovim");
+    let long: String = (0..2000).map(|i| format!("line {i}\n")).collect();
+    let mut buf = Buffer::from_str(&long);
+    buf.path = Some(std::env::temp_dir().join("editor-test-long.rs"));
+    app.ed.docs[0] = Doc::new(buf);
+    app.tree.show = true;
+    let mut rt = run(app);
+    let t = rt.state.m.text;
+    // The tree is as tall as the breadcrumbs and the text area together.
+    assert_eq!(rt.state.m.tree_h, t[3] + crate::ui::chrome::CRUMB_H);
+    // The scrollbar sits right of the text area. A press on its middle shows the middle.
+    let (x, y) = (t[0] + t[2] + crate::ui::scrollbar::W / 2.0, t[1] + t[3] / 2.0);
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(1.0 / 60.0);
+    let (top, line) = (rt.state.ed.doc().view.top, rt.state.ed.cursor().line);
+    assert!((900..1100).contains(&top), "the view moved to the middle: {top}");
+    assert!(line >= top && line < top + rt.state.ed.rows, "the cursor follows the view: {line}");
 }

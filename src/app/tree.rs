@@ -113,7 +113,8 @@ impl App {
 
     /// Rows that fit in the tree.
     pub fn tree_visible(&self) -> usize {
-        ((self.m.text[3] - 4.0) / ROW_H).floor().max(1.0) as usize
+        let h = if self.m.tree_h > 0.0 { self.m.tree_h } else { self.m.text[3] };
+        ((h - 4.0) / ROW_H).floor().max(1.0) as usize
     }
 
     /// The first row on screen: the scroll position, moved to show the keyboard row when

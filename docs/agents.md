@@ -88,10 +88,10 @@ $ sed 's/println!/eprintln!/' src/main.rs | editor ctl propose src/main.rs --lab
   move between changes, and `j`, `k`, `Ctrl d` and `Ctrl u` scroll. The status line counts
   waiting proposals.
 - **Outside changes.** When an agent, git or any tool writes a file you have open, the editor
-  reloads it and marks the changed lines with `┃` in the gutter. `SPC a l` (or the palette's
-  "Agent: list outside changes") lists every changed block; `u` undoes the reload. Saving the
-  file, or `SPC a c`, clears the marks. A buffer with unsaved edits is never reloaded over: the
-  editor warns instead.
+  reloads it and marks the changed lines with a violet bar in the gutter and on the scrollbar.
+  `SPC a l` (or the palette's "Agent: list outside changes") lists every changed block; `u`
+  undoes the reload. Saving the file, or `SPC a c`, clears the marks. A buffer with unsaved
+  edits is never reloaded over: the editor warns instead.
 - **Notes.** `reveal` tints the lines and shows the note beside the first one. `Esc` clears it.
 
 ## `$EDITOR`, git and second launches

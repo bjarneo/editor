@@ -3,7 +3,7 @@
 use rune::tok::TextStyle;
 use rune::{Color, Cursor, El, Span, col, el, row, spacer, text};
 
-use super::{font, widgets};
+use super::{font, icons, widgets};
 use crate::app::keys::{LEADER, LEADER_AGENT, LEADER_GIT, LEADER_LSP};
 use crate::app::menu::{ITEMS, Menu};
 use crate::app::{App, Overlay, PickKind, Picker};
@@ -65,7 +65,7 @@ pub fn picker(app: &App, p: &Palette, pk: &Picker) -> El {
     let locs = pk.kind == PickKind::Locations;
     let n = pk.len(if locs { app.locations.len() } else { app.grep.hits.len() });
     let start = if pk.sel >= rows_fit { pk.sel + 1 - rows_fit } else { 0 };
-    let mut list = col().w_full().grow(1.0).min_h(0.0).pt(10.0).pb(6.0).clip_rounded(0.0);
+    let mut list = col().w_full().grow(1.0).min_h(0.0).pt(10.0).pb(6.0).px(4.0).clip_rounded(0.0);
     for i in start..(start + rows_fit).min(n) {
         let on = i == pk.sel;
         let (dir, name, hits, extra) = row_text(app, pk, i);
@@ -79,9 +79,11 @@ pub fn picker(app: &App, p: &Palette, pk: &Picker) -> El {
         let mut r = row()
             .h(22.0)
             .w_full()
-            .px(8.0)
+            .px(6.0)
             .items_center()
+            .radius(4.0)
             .fill(if on { p.sel } else { Color::TRANSPARENT })
+            .hover(if on { p.sel } else { p.bg3 })
             .cursor(Cursor::Pointer)
             .role("option")
             .label(format!("{dir}{name}"))
@@ -91,9 +93,14 @@ pub fn picker(app: &App, p: &Palette, pk: &Picker) -> El {
                 }
                 s.pick_accept(tx);
             })
-            .child(text(if on { "> " } else { "  " }).font(style).color(p.ac))
-            .child(text(dir).font(style).color(p.fg2))
-            .child(text(name).font(style).color(p.fg).spans(spans));
+            .child(text(if on { "> " } else { "  " }).font(style).color(p.ac));
+        // Rows that are files show the file's icon.
+        if matches!(pk.kind, PickKind::Files | PickKind::Buffers | PickKind::Grep | PickKind::Locations) {
+            let file = if dir.is_empty() { name.split(':').next().unwrap_or("").rsplit('/').next().unwrap_or("") } else { name.as_str() };
+            let (icon, tint) = icons::file(file, p);
+            r = r.child(icons::draw(icon, 14.0, tint).mr(6.0));
+        }
+        r = r.child(text(dir).font(style).color(p.fg2)).child(text(name).font(style).color(p.fg).spans(spans));
         if !extra.is_empty() {
             r = r.child(text(extra).font(style).color(p.fg2).pl(12.0).truncate());
         }
@@ -234,8 +241,10 @@ pub fn menu(app: &App, p: &Palette, m: &Menu) -> El {
         let on = i == m.sel;
         let mut row_el = row()
             .h(24.0)
-            .px(12.0)
+            .mx(4.0)
+            .px(8.0)
             .items_center()
+            .radius(4.0)
             .fill(if on { p.sel } else { Color::TRANSPARENT })
             .hover(p.bg3)
             .role("menuitem")

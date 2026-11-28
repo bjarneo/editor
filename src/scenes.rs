@@ -11,6 +11,7 @@ type Scene = (&'static str, fn(&mut App));
 
 pub const SCENES: &[Scene] = &[
     ("editor", editor),
+    ("gutter", gutter),
     ("insert", insert),
     ("visual", visual),
     ("leader", leader),
@@ -95,6 +96,33 @@ fn line_of(app: &App, text: &str) -> usize {
 
 fn editor(app: &mut App) {
     sample(app);
+}
+
+/// Git changes, an error, a warning and lines an agent changed, in the gutter and on the
+/// scrollbar.
+fn gutter(app: &mut App) {
+    use crate::services::git::{Sign, SignKind};
+    use crate::services::lsp::Diag;
+    sample(app);
+    let at = app.ed.cursor().line;
+    let path = app.ed.buf().path.clone().unwrap_or_default();
+    let version = app.ed.buf().version();
+    let Some(m) = app.meta.get_mut(&path) else { return };
+    // These signs are the ones for this version, so the git worker is not asked for the real ones.
+    m.signs_version = version;
+    m.signs_asked = version + 1;
+    let sign = |line, kind| Sign { line, kind };
+    m.signs = vec![
+        sign(at - 12, SignKind::Modified),
+        sign(at - 11, SignKind::Modified),
+        sign(at + 2, SignKind::Added),
+        sign(at + 3, SignKind::Added),
+    ];
+    m.signs.push(sign(at + 8, SignKind::Deleted));
+    m.signs.extend((300..318).map(|l| sign(l, SignKind::Added)));
+    m.outside = vec![at - 6, at - 5];
+    let diag = |line, col, severity, message: &str| Diag { line, col, end_line: line, end_col: col + 4, severity, message: message.into() };
+    m.diags = vec![diag(at, 8, 1, "field `yank` is never read"), diag(at + 4, 8, 2, "unused field"), diag(420, 4, 1, "mismatched types")];
 }
 
 fn insert(app: &mut App) {

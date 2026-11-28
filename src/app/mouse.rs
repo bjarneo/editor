@@ -224,4 +224,24 @@ impl App {
         }
         true
     }
+
+    /// A press on the scrollbar. On the thumb it holds the thumb where it was pressed. On the
+    /// track it puts the thumb's middle under the pointer. A drag moves the view with it.
+    pub fn scrollbar_drag(&mut self, d: &mut Drag, tx: &mut Tx) {
+        if !self.cfg.mouse.enabled || !self.ed.has_doc() {
+            return;
+        }
+        let total = self.ed.buf().line_count();
+        let rows = self.ed.rows.max(1);
+        let Some((y, th)) = crate::ui::scrollbar::thumb(self.ed.doc().view.top, rows, total, d.h) else { return };
+        if d.phase == Phase::Down {
+            d.data = if d.y >= y && d.y <= y + th { d.y - y } else { th / 2.0 };
+        }
+        let top = crate::ui::scrollbar::top_at(d.y - d.data, rows, total, d.h);
+        let now = self.ed.doc().view.top;
+        if top != now {
+            self.ed.scroll_by(top as isize - now as isize);
+        }
+        tx.instant();
+    }
 }

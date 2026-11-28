@@ -177,6 +177,7 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
         app.cfg.editor.cursor.as_str()
     };
     let show_cursor = mode != Mode::Command && !app.tree.focus;
+    let sign_size = (rh - 6.0).clamp(10.0, 14.0);
     let mut drawn = 0usize;
     let mut line = top;
     while drawn < rows {
@@ -264,19 +265,16 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
                     code = code.text_highlight(TextHighlight::new(to_byte(a.max(from))..to_byte(b.min(from + n)), p.sel).pad(0.0));
                 }
             }
-            // Gutter.
-            let sign = if pi == 0 { signs.iter().find(|s| s.line == line) } else { None };
+            // Gutter: a diagnostic icon, the line number, then a bar for a git change.
             let diag = if pi == 0 { diags.iter().filter(|d| d.line == line).min_by_key(|d| d.severity) } else { None };
-            let changed_outside = pi == 0 && outside.binary_search(&line).is_ok();
-            let (sign_text, sign_color) = match (diag, sign.map(|s| s.kind)) {
-                (None, _) if changed_outside => ("┃", p.vis),
-                (Some(d), _) if d.severity <= 1 => ("E", p.err),
-                (Some(d), _) if d.severity == 2 => ("W", p.warn),
-                (Some(_), _) => ("I", p.fg2),
-                (None, Some(SignKind::Added)) => ("▎", p.ins),
-                (None, Some(SignKind::Modified)) => ("▎", p.cmd),
-                (None, Some(SignKind::Deleted)) => ("▁", p.err),
-                (None, None) => ("", p.fg3),
+            let last_piece = pi + 1 == pieces.len();
+            let changed_outside = outside.binary_search(&line).is_ok();
+            let git = match signs.iter().find(|s| s.line == line).map(|s| s.kind) {
+                _ if changed_outside => Some((p.vis, false)),
+                Some(SignKind::Added) => Some((p.ins, false)),
+                Some(SignKind::Modified) => Some((p.cmd, false)),
+                Some(SignKind::Deleted) if last_piece => Some((p.err, true)),
+                _ => None,
             };
             let num = if pi > 0 || numbers == "off" {
                 String::new()
@@ -289,14 +287,24 @@ pub fn text_area(app: &App, p: &Palette, _cx: &mut Cx<App>) -> El {
                 }
             };
             let num_style = if is_cur && pi == 0 { rune::tok::TextStyle { weight: 700.0, ..style } } else { style };
-            let mut gut =
-                row().w(gutter).h(rh).child(row().w(2.0 * cw).justify_center().child(text(sign_text).font(style).color(sign_color)));
+            let sign = match diag {
+                Some(d) if d.severity <= 1 => super::icons::draw(&super::icons::ERROR, sign_size, p.err),
+                Some(d) if d.severity == 2 => super::icons::draw(&super::icons::WARNING, sign_size, p.warn),
+                Some(_) => super::icons::draw(&super::icons::INFO, sign_size, p.fg2),
+                None => el(),
+            };
+            let mut gut = row().w(gutter).h(rh).child(row().w(2.0 * cw).h(rh).items_center().justify_center().child(sign));
             if numbers != "off" {
                 gut = gut.child(row().w((gcols - 4) as f32 * cw).justify_end().child(text(num).font(num_style).color(if is_cur {
                     p.fg
                 } else {
                     p.fg3
                 })));
+            }
+            match git {
+                Some((c, true)) => gut = gut.child(el().absolute(gutter - 1.5 * cw, rh - 2.0).size(cw, 3.0).radius(1.0).fill(c)),
+                Some((c, false)) => gut = gut.child(el().absolute(gutter - cw - 1.5, 1.0).size(3.0, rh - 2.0).radius(1.0).fill(c)),
+                None => {}
             }
             let noted = note.is_some_and(|n| line >= n.first && line <= n.last);
             if noted && code_fill == Color::TRANSPARENT {

@@ -779,6 +779,8 @@ Turn the mouse on or off in setup, in Settings or with `:set mouse`. When it is 
   A drag after a triple-click selects whole lines.
 - The wheel scrolls. With `⇧`, it scrolls sideways when soft wrap is off. `mouse.scroll`
   controls the wheel on its own, so the wheel can work while the mouse is off.
+- Drag the scrollbar's thumb to scroll, or click its track to go to that part of the file.
+  The scrollbar also marks git changes, errors, warnings and the cursor's line.
 - A right-click opens the context menu, when `mouse.right_click` is on.
 - A click on a tab goes to it. A click on its `×`, or a middle-click on the tab, closes it.
   A tab with unsaved changes stays open.

@@ -99,9 +99,9 @@ fn main() {
         config::Loaded::Ok(c) => c.window.opacity < 100,
         _ => false,
     };
-    // On macOS the buffer line is the titlebar: the traffic lights sit in it, centred, and its
-    // empty parts move the window. The position is macOS's own for a 28 point bar. Setting it
-    // here also puts the lights in the same place in a headless `--chrome` render on Linux.
+    // On macOS the tab bar is the titlebar: the traffic lights sit in it, centred, and its
+    // empty parts move the window. The lights sit 16 points in, centred in the bar's height.
+    // Setting it here also puts them in the same place in a headless `--chrome` render on Linux.
     let lights = (16.0, ((ui::editor_view::BAR_H - rune::Chrome::TRAFFIC_LIGHT) / 2.0).round());
     let app = rune::App::new(spec)
         .window_options(rune::WindowOptions { transparent, position, ..Default::default() })

@@ -103,6 +103,8 @@ pub struct Metrics {
     pub text: [f32; 4],
     /// The gutter's width (signs and numbers) in points.
     pub gutter: f32,
+    /// The file tree's height, 0 until it shows.
+    pub tree_h: f32,
 }
 
 #[derive(Default)]
@@ -247,7 +249,7 @@ impl App {
             git: GitInfo::default(),
             omarchy,
             svc: None,
-            m: Metrics { cw: 7.8, row_h: 22.0, text: [0.0, 0.0, 800.0, 600.0], gutter: 60.0 },
+            m: Metrics { cw: 7.8, row_h: 22.0, text: [0.0, 0.0, 800.0, 600.0], gutter: 60.0, tree_h: 0.0 },
             grep: Grep::default(),
             to_open: Vec::new(),
             restore_active: None,
